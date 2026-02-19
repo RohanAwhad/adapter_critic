@@ -21,6 +21,8 @@
 ## Implementation Notes
 - Prefer explicit contracts over implicit dict juggling.
 - Separate state/config models from orchestration behavior.
+- Refer to `../api_adapter`, `../api_adapter_v2026`, and `../api_adapter_revamped` only for implementation guidance.
+- Do not treat those external directories as source-of-truth requirements for this loop.
 - Keep workflow orchestrators isolated:
   - direct
   - adapter

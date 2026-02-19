@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from typing import Any
+
 from ..config import RuntimeConfig
 from ..contracts import ChatMessage
+from ..edits import build_adapter_draft_payload
 from ..prompts import build_critic_messages, build_critic_second_pass_messages
 from ..upstream import UpstreamGateway
 from .direct import WorkflowOutput
@@ -17,7 +20,12 @@ def _first_system_prompt(messages: list[ChatMessage]) -> str:
     return ""
 
 
-async def run_critic(runtime: RuntimeConfig, messages: list[ChatMessage], gateway: UpstreamGateway) -> WorkflowOutput:
+async def run_critic(
+    runtime: RuntimeConfig,
+    messages: list[ChatMessage],
+    gateway: UpstreamGateway,
+    request_options: dict[str, Any],
+) -> WorkflowOutput:
     if runtime.critic is None:
         raise ValueError("critic runtime is missing critic target")
 
@@ -26,11 +34,18 @@ async def run_critic(runtime: RuntimeConfig, messages: list[ChatMessage], gatewa
         base_url=runtime.api.base_url,
         messages=messages,
         api_key_env=runtime.api.api_key_env,
+        request_options=request_options,
     )
+    draft_payload = build_adapter_draft_payload(
+        content=api_draft.content,
+        tool_calls=api_draft.tool_calls,
+        function_call=api_draft.function_call,
+    )
+
     critic_messages = build_critic_messages(
         messages=messages,
         system_prompt=_first_system_prompt(messages),
-        draft=api_draft.content,
+        draft=draft_payload,
         critic_system_prompt=runtime.critic_system_prompt,
     )
     critic_feedback = await gateway.complete(
@@ -41,7 +56,7 @@ async def run_critic(runtime: RuntimeConfig, messages: list[ChatMessage], gatewa
     )
     second_pass_messages = build_critic_second_pass_messages(
         messages=messages,
-        draft=api_draft.content,
+        draft=draft_payload,
         critique=critic_feedback.content,
     )
     final_response = await gateway.complete(
@@ -49,6 +64,7 @@ async def run_critic(runtime: RuntimeConfig, messages: list[ChatMessage], gatewa
         base_url=runtime.api.base_url,
         messages=second_pass_messages,
         api_key_env=runtime.api.api_key_env,
+        request_options=request_options,
     )
     return WorkflowOutput(
         final_text=final_response.content,
@@ -62,4 +78,7 @@ async def run_critic(runtime: RuntimeConfig, messages: list[ChatMessage], gatewa
             "critic": critic_feedback.usage,
             "api_final": final_response.usage,
         },
+        final_tool_calls=final_response.tool_calls,
+        final_function_call=final_response.function_call,
+        finish_reason=final_response.finish_reason,
     )

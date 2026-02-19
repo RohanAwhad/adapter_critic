@@ -23,5 +23,15 @@ async def dispatch(
             request_options=request_options,
         )
     if runtime.mode == "adapter":
-        return await run_adapter(runtime=runtime, messages=messages, gateway=gateway)
-    return await run_critic(runtime=runtime, messages=messages, gateway=gateway)
+        return await run_adapter(
+            runtime=runtime,
+            messages=messages,
+            gateway=gateway,
+            request_options=request_options,
+        )
+    return await run_critic(
+        runtime=runtime,
+        messages=messages,
+        gateway=gateway,
+        request_options=request_options,
+    )

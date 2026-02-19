@@ -11,6 +11,8 @@ from adapter_critic.app import create_app
 from adapter_critic.config import AppConfig
 from adapter_critic.http_gateway import OpenAICompatibleHttpGateway
 from adapter_critic.runtime import build_runtime_state
+from adapter_critic.upstream import UpstreamResult
+from tests.helpers import build_client, usage
 
 
 @pytest.mark.anyio
@@ -106,3 +108,155 @@ async def test_served_direct_forwards_tools_and_tool_choice(monkeypatch: pytest.
     assert payload["choices"][0]["finish_reason"] == "tool_calls"
     assert payload["choices"][0]["message"]["content"] == ""
     assert payload["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "cancel_reservation"
+
+
+def test_served_adapter_can_edit_tool_calls_end_to_end(base_config: AppConfig) -> None:
+    client, gateway = build_client(
+        base_config,
+        [
+            UpstreamResult(
+                content="",
+                usage=usage(3, 2, 5),
+                tool_calls=[
+                    {
+                        "id": "call_cancel",
+                        "type": "function",
+                        "function": {
+                            "name": "cancel_reservation",
+                            "arguments": '{"reservation_id":"WRONG"}',
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            ),
+            UpstreamResult(
+                content=(
+                    "<<<<<<< SEARCH\n"
+                    '{\\"reservation_id\\":\\"WRONG\\"}\n'
+                    "=======\n"
+                    '{\\"reservation_id\\":\\"EHGLP3\\"}\n'
+                    ">>>>>>> REPLACE"
+                ),
+                usage=usage(2, 1, 3),
+            ),
+        ],
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "served-adapter",
+            "messages": [{"role": "user", "content": "cancel reservation EHGLP3"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"reservation_id": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["choices"][0]["finish_reason"] == "tool_calls"
+    assert payload["choices"][0]["message"]["content"] == ""
+    assert payload["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "cancel_reservation"
+    assert payload["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] == '{"reservation_id":"EHGLP3"}'
+
+    first_request_options = gateway.calls[0]["request_options"]
+    assert first_request_options is not None
+    assert first_request_options["tool_choice"] == "auto"
+    assert first_request_options["tools"][0]["function"]["name"] == "cancel_reservation"
+    assert gateway.calls[1]["request_options"] is None
+
+    adapter_prompt_content = gateway.calls[1]["messages"][1].content
+    assert adapter_prompt_content is not None
+    assert "<ADAPTER_DRAFT_TOOL_CALLS>" in adapter_prompt_content
+    assert "cancel_reservation" in adapter_prompt_content
+
+
+def test_served_critic_forwards_tool_options_and_returns_tool_calls(base_config: AppConfig) -> None:
+    client, gateway = build_client(
+        base_config,
+        [
+            UpstreamResult(
+                content="",
+                usage=usage(3, 2, 5),
+                tool_calls=[
+                    {
+                        "id": "call_cancel",
+                        "type": "function",
+                        "function": {
+                            "name": "cancel_reservation",
+                            "arguments": '{"reservation_id":"WRONG"}',
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            ),
+            UpstreamResult(content="Fix reservation_id argument", usage=usage(2, 1, 3)),
+            UpstreamResult(
+                content="",
+                usage=usage(4, 2, 6),
+                tool_calls=[
+                    {
+                        "id": "call_cancel",
+                        "type": "function",
+                        "function": {
+                            "name": "cancel_reservation",
+                            "arguments": '{"reservation_id":"EHGLP3"}',
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            ),
+        ],
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "served-critic",
+            "messages": [{"role": "user", "content": "cancel reservation EHGLP3"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"reservation_id": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["choices"][0]["finish_reason"] == "tool_calls"
+    assert payload["choices"][0]["message"]["content"] == ""
+    assert payload["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "cancel_reservation"
+    assert payload["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] == '{"reservation_id":"EHGLP3"}'
+
+    first_request_options = gateway.calls[0]["request_options"]
+    final_request_options = gateway.calls[2]["request_options"]
+    assert first_request_options is not None
+    assert final_request_options is not None
+    assert first_request_options["tool_choice"] == "auto"
+    assert final_request_options["tool_choice"] == "auto"
+    assert gateway.calls[1]["request_options"] is None
+
+    critic_prompt_content = gateway.calls[1]["messages"][1].content
+    assert critic_prompt_content is not None
+    assert "<ADAPTER_DRAFT_TOOL_CALLS>" in critic_prompt_content
+    assert "cancel_reservation" in critic_prompt_content

@@ -23,19 +23,39 @@ You can configure per-served-model adapter/critic system prompts in startup conf
   "served_models": {
     "served-direct": {
       "mode": "direct",
-      "api": {"model": "gpt-4.1-mini", "base_url": "https://api.openai.com/v1"},
+      "api": {
+        "model": "gpt-4.1-mini",
+        "base_url": "https://api.openai.com/v1",
+        "api_key_env": "OPENAI_API_KEY"
+      },
       "adapter_system_prompt": "You are a strict editor. Return lgtm or SEARCH/REPLACE blocks only.",
       "critic_system_prompt": "You are a critique generator. List issues and exact fix instructions."
     },
     "served-adapter": {
       "mode": "adapter",
-      "api": {"model": "gpt-4.1-mini", "base_url": "https://api.openai.com/v1"},
-      "adapter": {"model": "gpt-4.1-mini", "base_url": "https://api.openai.com/v1"}
+      "api": {
+        "model": "gpt-4.1-mini",
+        "base_url": "https://api.openai.com/v1",
+        "api_key_env": "OPENAI_API_KEY"
+      },
+      "adapter": {
+        "model": "openai/gpt-oss-20b",
+        "base_url": "https://api.groq.com/openai/v1",
+        "api_key_env": "GROQ_API_KEY"
+      }
     },
     "served-critic": {
       "mode": "critic",
-      "api": {"model": "gpt-4.1-mini", "base_url": "https://api.openai.com/v1"},
-      "critic": {"model": "gpt-4.1-mini", "base_url": "https://api.openai.com/v1"}
+      "api": {
+        "model": "gpt-4.1-mini",
+        "base_url": "https://api.openai.com/v1",
+        "api_key_env": "OPENAI_API_KEY"
+      },
+      "critic": {
+        "model": "openai/gpt-oss-20b",
+        "base_url": "https://api.groq.com/openai/v1",
+        "api_key_env": "GROQ_API_KEY"
+      }
     }
   }
 }
@@ -60,7 +80,6 @@ Endpoint:
 ## Python script setup example
 
 ```python
-import os
 import uvicorn
 from adapter_critic.app import create_app
 from adapter_critic.config import AppConfig
@@ -72,7 +91,11 @@ config = AppConfig.model_validate(
         "served_models": {
             "served-direct": {
                 "mode": "direct",
-                "api": {"model": "gpt-4.1-mini", "base_url": "https://api.openai.com/v1"},
+                "api": {
+                    "model": "gpt-4.1-mini",
+                    "base_url": "https://api.openai.com/v1",
+                    "api_key_env": "OPENAI_API_KEY",
+                },
                 "adapter_system_prompt": "Custom adapter prompt",
                 "critic_system_prompt": "Custom critic prompt",
             }
@@ -80,7 +103,7 @@ config = AppConfig.model_validate(
     }
 )
 
-gateway = OpenAICompatibleHttpGateway(api_key=os.environ.get("OPENAI_API_KEY"))
+gateway = OpenAICompatibleHttpGateway(default_api_key_env="OPENAI_API_KEY")
 state = build_runtime_state(config=config, gateway=gateway)
 app = create_app(config=config, gateway=gateway, state=state)
 
@@ -110,6 +133,12 @@ Supported override fields:
 - `api_model`, `api_base_url`
 - `adapter_model`, `adapter_base_url`
 - `critic_model`, `critic_base_url`
+
+Per-stage API key config:
+
+- in each stage target (`api`, `adapter`, `critic`) set `api_key_env`
+- compatibility alias: `api_key_var` is also accepted
+- if stage key env is not set, gateway falls back to CLI `--api-key-env` (default `OPENAI_API_KEY`)
 
 Mode target fallback:
 

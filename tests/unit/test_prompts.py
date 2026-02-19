@@ -10,6 +10,8 @@ def test_critic_prompt_contains_required_inputs() -> None:
         ChatMessage(role="user", content="question"),
     ]
     prompt_messages = build_critic_messages(messages=messages, system_prompt="sys rule", draft="api draft")
-    assert "sys rule" in prompt_messages[1].content
-    assert "question" in prompt_messages[1].content
-    assert "api draft" in prompt_messages[1].content
+    content = prompt_messages[1].content
+    assert content is not None
+    assert "sys rule" in content
+    assert "question" in content
+    assert "api draft" in content

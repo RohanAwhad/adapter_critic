@@ -91,7 +91,10 @@ def create_app(
 
         try:
             workflow_output = await dispatch(
-                runtime=runtime, messages=parsed.request.messages, gateway=runtime_state.gateway
+                runtime=runtime,
+                messages=parsed.request.messages,
+                gateway=runtime_state.gateway,
+                request_options=parsed.request_options,
             )
         except UpstreamResponseFormatError as exc:
             logger.error(
@@ -115,6 +118,9 @@ def create_app(
             tokens=tokens,
             response_id=runtime_state.id_provider(),
             created=runtime_state.time_provider(),
+            final_tool_calls=workflow_output.final_tool_calls,
+            final_function_call=workflow_output.final_function_call,
+            finish_reason=workflow_output.finish_reason,
         )
 
     return app

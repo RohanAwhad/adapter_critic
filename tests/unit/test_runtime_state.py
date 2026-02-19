@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from adapter_critic.config import AppConfig
 from adapter_critic.contracts import ChatMessage
 from adapter_critic.runtime import build_runtime_state
@@ -7,7 +9,16 @@ from adapter_critic.upstream import UpstreamResult
 
 
 class DummyGateway:
-    async def complete(self, *, model: str, base_url: str, messages: list[ChatMessage]) -> UpstreamResult:
+    async def complete(
+        self,
+        *,
+        model: str,
+        base_url: str,
+        messages: list[ChatMessage],
+        api_key_env: str | None = None,
+        request_options: dict[str, Any] | None = None,
+    ) -> UpstreamResult:
+        del api_key_env, request_options
         raise NotImplementedError
 
 

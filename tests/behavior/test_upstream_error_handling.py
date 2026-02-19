@@ -20,8 +20,9 @@ class BrokenGateway:
         base_url: str,
         messages: list[ChatMessage],
         api_key_env: str | None = None,
+        request_options: dict[str, Any] | None = None,
     ) -> UpstreamResult:
-        del api_key_env
+        del api_key_env, request_options
         raise UpstreamResponseFormatError(
             reason="response missing non-empty choices",
             model=model,

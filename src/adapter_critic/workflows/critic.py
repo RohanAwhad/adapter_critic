@@ -10,7 +10,10 @@ from .direct import WorkflowOutput
 def _first_system_prompt(messages: list[ChatMessage]) -> str:
     for message in messages:
         if message.role == "system":
-            return message.content
+            content = message.content
+            if content is None:
+                return ""
+            return content
     return ""
 
 
@@ -18,7 +21,12 @@ async def run_critic(runtime: RuntimeConfig, messages: list[ChatMessage], gatewa
     if runtime.critic is None:
         raise ValueError("critic runtime is missing critic target")
 
-    api_draft = await gateway.complete(model=runtime.api.model, base_url=runtime.api.base_url, messages=messages)
+    api_draft = await gateway.complete(
+        model=runtime.api.model,
+        base_url=runtime.api.base_url,
+        messages=messages,
+        api_key_env=runtime.api.api_key_env,
+    )
     critic_messages = build_critic_messages(
         messages=messages,
         system_prompt=_first_system_prompt(messages),
@@ -29,6 +37,7 @@ async def run_critic(runtime: RuntimeConfig, messages: list[ChatMessage], gatewa
         model=runtime.critic.model,
         base_url=runtime.critic.base_url,
         messages=critic_messages,
+        api_key_env=runtime.critic.api_key_env,
     )
     second_pass_messages = build_critic_second_pass_messages(
         messages=messages,
@@ -39,6 +48,7 @@ async def run_critic(runtime: RuntimeConfig, messages: list[ChatMessage], gatewa
         model=runtime.api.model,
         base_url=runtime.api.base_url,
         messages=second_pass_messages,
+        api_key_env=runtime.api.api_key_env,
     )
     return WorkflowOutput(
         final_text=final_response.content,

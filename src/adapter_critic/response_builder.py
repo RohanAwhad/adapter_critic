@@ -15,7 +15,16 @@ def build_response(
     tokens: TokenBreakdown,
     response_id: str,
     created: int,
+    final_tool_calls: list[dict[str, Any]] | None = None,
+    final_function_call: dict[str, Any] | None = None,
+    finish_reason: str = "stop",
 ) -> dict[str, Any]:
+    message: dict[str, Any] = {"role": "assistant", "content": final_text}
+    if final_tool_calls is not None:
+        message["tool_calls"] = final_tool_calls
+    if final_function_call is not None:
+        message["function_call"] = final_function_call
+
     return {
         "id": response_id,
         "object": "chat.completion",
@@ -24,8 +33,8 @@ def build_response(
         "choices": [
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": final_text},
-                "finish_reason": "stop",
+                "message": message,
+                "finish_reason": finish_reason,
             }
         ],
         "usage": tokens.total.model_dump(),

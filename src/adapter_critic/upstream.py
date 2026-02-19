@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel
 
@@ -16,7 +16,18 @@ class TokenUsage(BaseModel):
 class UpstreamResult(BaseModel):
     content: str
     usage: TokenUsage
+    tool_calls: list[dict[str, Any]] | None = None
+    function_call: dict[str, Any] | None = None
+    finish_reason: str = "stop"
 
 
 class UpstreamGateway(Protocol):
-    async def complete(self, *, model: str, base_url: str, messages: list[ChatMessage]) -> UpstreamResult: ...
+    async def complete(
+        self,
+        *,
+        model: str,
+        base_url: str,
+        messages: list[ChatMessage],
+        api_key_env: str | None = None,
+        request_options: dict[str, Any] | None = None,
+    ) -> UpstreamResult: ...

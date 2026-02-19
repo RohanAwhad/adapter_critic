@@ -8,8 +8,10 @@ Mode = Literal["direct", "adapter", "critic"]
 
 
 class ChatMessage(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     role: Literal["system", "user", "assistant", "tool"]
-    content: str
+    content: str | None = ""
 
 
 class AdapterCriticOverrides(BaseModel):
@@ -35,6 +37,7 @@ class ChatCompletionRequest(BaseModel):
 class ParsedRequest(BaseModel):
     request: ChatCompletionRequest
     overrides: AdapterCriticOverrides
+    request_options: dict[str, Any]
 
 
 def parse_request_payload(payload: dict[str, Any]) -> ParsedRequest:
@@ -43,4 +46,5 @@ def parse_request_payload(payload: dict[str, Any]) -> ParsedRequest:
     if override_payload is None:
         override_payload = request.extra_body.get("x_adapter_critic", {})
     overrides = AdapterCriticOverrides.model_validate(override_payload or {})
-    return ParsedRequest(request=request, overrides=overrides)
+    request_options = {key: value for key, value in (request.model_extra or {}).items() if key != "x_adapter_critic"}
+    return ParsedRequest(request=request, overrides=overrides, request_options=request_options)

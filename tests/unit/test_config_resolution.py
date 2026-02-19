@@ -89,3 +89,43 @@ def test_served_model_custom_prompts_are_resolved() -> None:
     assert critic_runtime is not None
     assert adapter_runtime.adapter_system_prompt == "adapter prompt from config"
     assert critic_runtime.critic_system_prompt == "critic prompt from config"
+
+
+def test_stage_api_key_env_is_resolved() -> None:
+    config = AppConfig.model_validate(
+        {
+            "served_models": {
+                "served-direct": {
+                    "mode": "direct",
+                    "api": {
+                        "model": "api-direct",
+                        "base_url": "https://api.example",
+                        "api_key_env": "OPENAI_API_KEY",
+                    },
+                }
+            }
+        }
+    )
+    runtime = resolve_runtime_config(config, "served-direct", AdapterCriticOverrides())
+    assert runtime is not None
+    assert runtime.api.api_key_env == "OPENAI_API_KEY"
+
+
+def test_stage_api_key_var_alias_is_resolved() -> None:
+    config = AppConfig.model_validate(
+        {
+            "served_models": {
+                "served-direct": {
+                    "mode": "direct",
+                    "api": {
+                        "model": "api-direct",
+                        "base_url": "https://api.example",
+                        "api_key_var": "GROQ_API_KEY",
+                    },
+                }
+            }
+        }
+    )
+    runtime = resolve_runtime_config(config, "served-direct", AdapterCriticOverrides())
+    assert runtime is not None
+    assert runtime.api.api_key_env == "GROQ_API_KEY"

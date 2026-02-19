@@ -55,3 +55,48 @@ def test_unknown_override_field_is_rejected() -> None:
     payload["x_adapter_critic"] = {"unknown": "x"}
     with pytest.raises(ValidationError):
         parse_request_payload(payload)
+
+
+def test_tool_related_fields_are_preserved_for_direct_upstream_calls() -> None:
+    payload = _base_payload()
+    payload["messages"] = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_cancel",
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "arguments": '{"reservation_id":"EHGLP3"}',
+                    },
+                }
+            ],
+        },
+        {"role": "tool", "content": "{}", "tool_call_id": "call_cancel"},
+    ]
+    payload["tools"] = [
+        {
+            "type": "function",
+            "function": {
+                "name": "cancel_reservation",
+                "parameters": {"type": "object", "properties": {"reservation_id": {"type": "string"}}},
+            },
+        }
+    ]
+    payload["tool_choice"] = "auto"
+    payload["x_adapter_critic"] = {"mode": "direct"}
+
+    parsed = parse_request_payload(payload)
+
+    assert "x_adapter_critic" not in parsed.request_options
+    assert parsed.request_options["tool_choice"] == "auto"
+    assert parsed.request_options["tools"][0]["function"]["name"] == "cancel_reservation"
+
+    assistant_extra = parsed.request.messages[0].model_extra
+    tool_extra = parsed.request.messages[1].model_extra
+    assert assistant_extra is not None
+    assert tool_extra is not None
+    assert assistant_extra["tool_calls"][0]["id"] == "call_cancel"
+    assert tool_extra["tool_call_id"] == "call_cancel"

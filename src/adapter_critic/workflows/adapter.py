@@ -12,7 +12,12 @@ async def run_adapter(runtime: RuntimeConfig, messages: list[ChatMessage], gatew
     if runtime.adapter is None:
         raise ValueError("adapter runtime is missing adapter target")
 
-    api_draft = await gateway.complete(model=runtime.api.model, base_url=runtime.api.base_url, messages=messages)
+    api_draft = await gateway.complete(
+        model=runtime.api.model,
+        base_url=runtime.api.base_url,
+        messages=messages,
+        api_key_env=runtime.api.api_key_env,
+    )
     adapter_messages = build_adapter_messages(
         messages=messages,
         draft=api_draft.content,
@@ -22,6 +27,7 @@ async def run_adapter(runtime: RuntimeConfig, messages: list[ChatMessage], gatew
         model=runtime.adapter.model,
         base_url=runtime.adapter.base_url,
         messages=adapter_messages,
+        api_key_env=runtime.adapter.api_key_env,
     )
     final_text = apply_adapter_output(draft=api_draft.content, adapter_output=adapter_review.content)
     return WorkflowOutput(

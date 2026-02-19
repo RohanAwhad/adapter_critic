@@ -25,5 +25,6 @@ def test_adapter_mode_path(base_config: AppConfig) -> None:
     assert payload["choices"][0]["message"]["content"] == "Hello world"
     assert [call["model"] for call in gateway.calls] == ["api-model", "adapter-model"]
     adapter_prompt_content = gateway.calls[1]["messages"][1].content
+    assert adapter_prompt_content is not None
     assert "Latest API draft" in adapter_prompt_content
     assert "Hello wrld" in adapter_prompt_content

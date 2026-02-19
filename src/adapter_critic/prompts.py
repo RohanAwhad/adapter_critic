@@ -14,7 +14,7 @@ CRITIC_SYSTEM_PROMPT = (
 def _render_history(messages: list[ChatMessage]) -> str:
     rendered = []
     for message in messages:
-        rendered.append(f"[{message.role}] {message.content}")
+        rendered.append(f"[{message.role}] {message.content or ''}")
     return "\n".join(rendered)
 
 

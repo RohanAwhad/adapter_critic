@@ -12,3 +12,5 @@ devlogs.md
 config.json
 play.log
 play.py
+.dingllm
+.tasks.md

@@ -73,6 +73,7 @@ class OpenAICompatibleHttpGateway:
         base_url: str,
         messages: list[ChatMessage],
         api_key_env: str | None = None,
+        request_options: dict[str, Any] | None = None,
     ) -> UpstreamResult:
         headers: dict[str, str] = {"Content-Type": "application/json"}
         resolved_api_key = self._resolve_api_key(api_key_env)
@@ -81,8 +82,12 @@ class OpenAICompatibleHttpGateway:
 
         payload: dict[str, Any] = {
             "model": model,
-            "messages": [message.model_dump() for message in messages],
+            "messages": [message.model_dump(exclude_none=True) for message in messages],
         }
+        if request_options is not None:
+            for key, value in request_options.items():
+                if key not in {"model", "messages"}:
+                    payload[key] = value
 
         async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
             response = await client.post(
@@ -146,6 +151,36 @@ class OpenAICompatibleHttpGateway:
                 response_body=data,
             )
 
+        tool_calls_value = message.get("tool_calls")
+        if tool_calls_value is None:
+            tool_calls: list[dict[str, Any]] | None = None
+        elif isinstance(tool_calls_value, list) and all(isinstance(item, dict) for item in tool_calls_value):
+            tool_calls = tool_calls_value
+        else:
+            raise UpstreamResponseFormatError(
+                reason="choices[0].message.tool_calls is not a list of objects",
+                model=model,
+                base_url=base_url,
+                message_count=len(messages),
+                status_code=response.status_code,
+                response_body=data,
+            )
+
+        function_call_value = message.get("function_call")
+        if function_call_value is None:
+            function_call: dict[str, Any] | None = None
+        elif isinstance(function_call_value, dict):
+            function_call = function_call_value
+        else:
+            raise UpstreamResponseFormatError(
+                reason="choices[0].message.function_call is not an object",
+                model=model,
+                base_url=base_url,
+                message_count=len(messages),
+                status_code=response.status_code,
+                response_body=data,
+            )
+
         raw_usage = data.get("usage", {})
         usage = raw_usage if isinstance(raw_usage, dict) else {}
         content_value = message.get("content")
@@ -157,6 +192,20 @@ class OpenAICompatibleHttpGateway:
             )
         else:
             content = ""
+
+        if content == "" and tool_calls is None and function_call is None:
+            raise UpstreamResponseFormatError(
+                reason="assistant message has empty content and no tool calls",
+                model=model,
+                base_url=base_url,
+                message_count=len(messages),
+                status_code=response.status_code,
+                response_body=data,
+            )
+
+        finish_reason_value = first_choice.get("finish_reason")
+        finish_reason = finish_reason_value if isinstance(finish_reason_value, str) else "stop"
+
         return UpstreamResult(
             content=content,
             usage=TokenUsage(
@@ -164,4 +213,7 @@ class OpenAICompatibleHttpGateway:
                 completion_tokens=int(usage.get("completion_tokens", 0)),
                 total_tokens=int(usage.get("total_tokens", 0)),
             ),
+            tool_calls=tool_calls,
+            function_call=function_call,
+            finish_reason=finish_reason,
         )

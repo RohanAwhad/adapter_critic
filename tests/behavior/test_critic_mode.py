@@ -29,9 +29,11 @@ def test_critic_mode_path(base_config: AppConfig) -> None:
     assert payload["choices"][0]["message"]["content"] == "Final response"
     assert [call["model"] for call in gateway.calls] == ["api-model", "critic-model", "api-model"]
     critic_prompt_content = gateway.calls[1]["messages"][1].content
+    assert critic_prompt_content is not None
     assert "be precise" in critic_prompt_content
     assert "Draft response" in critic_prompt_content
     final_pass_system = gateway.calls[2]["messages"][-1].content
+    assert final_pass_system is not None
     assert "Needs more detail" in final_pass_system
 
 
@@ -53,4 +55,5 @@ def test_critic_mode_without_system_message_uses_empty_system_fallback(base_conf
     )
     assert response.status_code == 200
     critic_prompt_content = gateway.calls[1]["messages"][1].content
+    assert critic_prompt_content is not None
     assert "System instructions:\n\n\nConversation history" in critic_prompt_content

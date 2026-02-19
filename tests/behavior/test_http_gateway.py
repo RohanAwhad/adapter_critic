@@ -174,3 +174,121 @@ async def test_openai_compatible_http_gateway_raises_for_missing_choices(
     assert exc.message_count == 1
     assert exc.status_code == 200
     assert '"error"' in exc.payload_preview
+
+
+@pytest.mark.anyio
+async def test_openai_compatible_http_gateway_forwards_request_options_and_tool_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upstream = FastAPI()
+
+    @upstream.post("/v1/chat/completions")
+    async def chat(payload: dict[str, Any]) -> dict[str, Any]:
+        assert payload["model"] == "api-model"
+        assert payload["tool_choice"] == "auto"
+        assert payload["tools"][0]["function"]["name"] == "cancel_reservation"
+        return {
+            "id": "chatcmpl-upstream",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "api-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_cancel",
+                                "type": "function",
+                                "function": {
+                                    "name": "cancel_reservation",
+                                    "arguments": '{"reservation_id":"EHGLP3"}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+        }
+
+    transport = httpx.ASGITransport(app=upstream)
+    original_async_client = httpx.AsyncClient
+
+    def patched_async_client(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        return original_async_client(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_async_client)
+
+    gateway = OpenAICompatibleHttpGateway(api_key="dummy", timeout_seconds=5.0)
+    result = await gateway.complete(
+        model="api-model",
+        base_url="http://testserver/v1",
+        messages=[ChatMessage(role="user", content="hello")],
+        request_options={
+            "tool_choice": "auto",
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"reservation_id": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+        },
+    )
+
+    assert result.content == ""
+    assert result.finish_reason == "tool_calls"
+    assert result.tool_calls is not None
+    assert result.tool_calls[0]["function"]["name"] == "cancel_reservation"
+
+
+@pytest.mark.anyio
+async def test_openai_compatible_http_gateway_rejects_empty_content_without_tool_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upstream = FastAPI()
+
+    @upstream.post("/v1/chat/completions")
+    async def chat(payload: dict[str, Any]) -> dict[str, Any]:
+        assert payload["model"] == "api-model"
+        return {
+            "id": "chatcmpl-upstream",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "api-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": ""},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+        }
+
+    transport = httpx.ASGITransport(app=upstream)
+    original_async_client = httpx.AsyncClient
+
+    def patched_async_client(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        return original_async_client(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_async_client)
+
+    gateway = OpenAICompatibleHttpGateway(api_key="dummy", timeout_seconds=5.0)
+    with pytest.raises(UpstreamResponseFormatError) as exc_info:
+        await gateway.complete(
+            model="api-model",
+            base_url="http://testserver/v1",
+            messages=[ChatMessage(role="user", content="hello")],
+        )
+
+    assert exc_info.value.reason == "assistant message has empty content and no tool calls"

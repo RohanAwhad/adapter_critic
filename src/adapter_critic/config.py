@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from .contracts import AdapterCriticOverrides, Mode
 from .prompts import ADAPTER_SYSTEM_PROMPT, CRITIC_SYSTEM_PROMPT
@@ -9,6 +9,11 @@ from .prompts import ADAPTER_SYSTEM_PROMPT, CRITIC_SYSTEM_PROMPT
 class StageTarget(BaseModel):
     model: str
     base_url: str
+    api_key_env: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("api_key_env", "api_key_var"),
+        serialization_alias="api_key_env",
+    )
 
 
 class ServedModelConfig(BaseModel):
@@ -41,9 +46,10 @@ def _resolve_stage(base: StageTarget | None, model: str | None, base_url: str | 
         return None
     resolved_model = model if model is not None else (base.model if base is not None else None)
     resolved_base_url = base_url if base_url is not None else (base.base_url if base is not None else None)
+    resolved_api_key_env = base.api_key_env if base is not None else None
     if resolved_model is None or resolved_base_url is None:
         return None
-    return StageTarget(model=resolved_model, base_url=resolved_base_url)
+    return StageTarget(model=resolved_model, base_url=resolved_base_url, api_key_env=resolved_api_key_env)
 
 
 def resolve_runtime_config(

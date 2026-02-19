@@ -58,6 +58,12 @@ Per-served-model prompt config (startup):
 - `critic_system_prompt`
 - if not set, defaults from `src/adapter_critic/prompts.py` are used
 
+Per-stage API key env config (startup):
+
+- each stage target supports `api_key_env` (`api_key_var` alias accepted)
+- gateway resolves bearer token from stage env var per call
+- if unset, gateway uses default env name (CLI `--api-key-env`, default `OPENAI_API_KEY`)
+
 Response:
 
 - standard OpenAI chat-completions shape (`id`, `object`, `created`, `model`, `choices`, `usage`)

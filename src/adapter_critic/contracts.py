@@ -24,6 +24,7 @@ class AdapterCriticOverrides(BaseModel):
     adapter_base_url: str | None = None
     critic_model: str | None = None
     critic_base_url: str | None = None
+    max_adapter_retries: int | None = Field(default=None, ge=0)
 
 
 class ChatCompletionRequest(BaseModel):

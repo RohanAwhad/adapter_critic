@@ -21,6 +21,7 @@ class ServedModelConfig(BaseModel):
     api: StageTarget
     adapter: StageTarget | None = None
     critic: StageTarget | None = None
+    max_adapter_retries: int = Field(default=0, ge=0)
     adapter_system_prompt: str | None = None
     critic_system_prompt: str | None = None
 
@@ -37,6 +38,7 @@ class RuntimeConfig(BaseModel):
     api: StageTarget
     adapter: StageTarget | None = None
     critic: StageTarget | None = None
+    max_adapter_retries: int = 0
     adapter_system_prompt: str
     critic_system_prompt: str
 
@@ -86,6 +88,9 @@ def resolve_runtime_config(
         api=api_target,
         adapter=adapter_target,
         critic=critic_target,
+        max_adapter_retries=(
+            overrides.max_adapter_retries if overrides.max_adapter_retries is not None else served.max_adapter_retries
+        ),
         adapter_system_prompt=(
             served.adapter_system_prompt if served.adapter_system_prompt is not None else ADAPTER_SYSTEM_PROMPT
         ),

@@ -29,6 +29,7 @@ def test_served_model_resolves_defaults() -> None:
     assert runtime.api.model == "api-default"
     assert runtime.adapter is not None
     assert runtime.adapter.model == "adapter-default"
+    assert runtime.max_adapter_retries == 0
 
 
 def test_request_override_has_precedence() -> None:
@@ -36,11 +37,31 @@ def test_request_override_has_precedence() -> None:
         mode="adapter",
         adapter_model="adapter-override",
         adapter_base_url="https://override.example",
+        max_adapter_retries=1,
     )
     runtime = resolve_runtime_config(_config(), "served-adapter", overrides)
     assert runtime is not None
     assert runtime.adapter is not None
     assert runtime.adapter.model == "adapter-override"
+    assert runtime.max_adapter_retries == 1
+
+
+def test_served_model_max_adapter_retries_is_resolved() -> None:
+    config = AppConfig.model_validate(
+        {
+            "served_models": {
+                "served-adapter": {
+                    "mode": "adapter",
+                    "api": {"model": "api-default", "base_url": "https://api.example"},
+                    "adapter": {"model": "adapter-default", "base_url": "https://adapter.example"},
+                    "max_adapter_retries": 2,
+                }
+            }
+        }
+    )
+    runtime = resolve_runtime_config(config, "served-adapter", AdapterCriticOverrides())
+    assert runtime is not None
+    assert runtime.max_adapter_retries == 2
 
 
 def test_mode_override_without_secondary_target_falls_back_to_api_target() -> None:

@@ -33,6 +33,7 @@ You can configure per-served-model adapter/critic system prompts in startup conf
     },
     "served-adapter": {
       "mode": "adapter",
+      "max_adapter_retries": 0,
       "api": {
         "model": "gpt-4.1-mini",
         "base_url": "https://api.openai.com/v1",
@@ -133,6 +134,7 @@ Supported override fields:
 - `api_model`, `api_base_url`
 - `adapter_model`, `adapter_base_url`
 - `critic_model`, `critic_base_url`
+- `max_adapter_retries` (non-negative int, default `0`)
 
 Per-stage API key config:
 
@@ -160,6 +162,7 @@ Adapter edit semantics:
 
 - adapter returns `lgtm` to accept draft unchanged, or
 - adapter returns one or more SEARCH/REPLACE blocks applied sequentially.
+- retries are controlled by `max_adapter_retries` (default `0` = single adapter attempt)
 
 ## OpenAI SDK Example
 

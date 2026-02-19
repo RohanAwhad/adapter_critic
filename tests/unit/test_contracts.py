@@ -29,9 +29,10 @@ def test_parse_override_from_extra_body() -> None:
 
 def test_parse_override_from_top_level() -> None:
     payload = _base_payload()
-    payload["x_adapter_critic"] = {"mode": "critic"}
+    payload["x_adapter_critic"] = {"mode": "critic", "max_adapter_retries": 1}
     parsed = parse_request_payload(payload)
     assert parsed.overrides.mode == "critic"
+    assert parsed.overrides.max_adapter_retries == 1
 
 
 def test_top_level_override_has_precedence_over_extra_body() -> None:
@@ -53,6 +54,13 @@ def test_top_level_override_has_precedence_over_extra_body() -> None:
 def test_unknown_override_field_is_rejected() -> None:
     payload = _base_payload()
     payload["x_adapter_critic"] = {"unknown": "x"}
+    with pytest.raises(ValidationError):
+        parse_request_payload(payload)
+
+
+def test_negative_max_adapter_retries_is_rejected() -> None:
+    payload = _base_payload()
+    payload["x_adapter_critic"] = {"mode": "adapter", "max_adapter_retries": -1}
     with pytest.raises(ValidationError):
         parse_request_payload(payload)
 

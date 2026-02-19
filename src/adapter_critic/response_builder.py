@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .contracts import ChatCompletionRequest, Mode
+from .response_shape import infer_finish_reason, normalize_tool_calls
 from .usage import TokenBreakdown
 
 
@@ -19,11 +20,19 @@ def build_response(
     final_function_call: dict[str, Any] | None = None,
     finish_reason: str = "stop",
 ) -> dict[str, Any]:
+    normalized_tool_calls = normalize_tool_calls(final_tool_calls)
+    response_function_call = final_function_call if normalized_tool_calls is None else None
+    response_finish_reason = infer_finish_reason(
+        finish_reason,
+        tool_calls=normalized_tool_calls,
+        function_call=response_function_call,
+    )
+
     message: dict[str, Any] = {"role": "assistant", "content": final_text}
-    if final_tool_calls is not None:
-        message["tool_calls"] = final_tool_calls
-    if final_function_call is not None:
-        message["function_call"] = final_function_call
+    if normalized_tool_calls is not None:
+        message["tool_calls"] = normalized_tool_calls
+    if response_function_call is not None:
+        message["function_call"] = response_function_call
 
     return {
         "id": response_id,
@@ -34,7 +43,7 @@ def build_response(
             {
                 "index": 0,
                 "message": message,
-                "finish_reason": finish_reason,
+                "finish_reason": response_finish_reason,
             }
         ],
         "usage": tokens.total.model_dump(),

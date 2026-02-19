@@ -62,3 +62,26 @@ def test_apply_adapter_output_to_draft_can_edit_tool_call_arguments() -> None:
     assert final_function_call is None
     assert final_tool_calls is not None
     assert final_tool_calls[0]["function"]["arguments"] == '{"reservation_id":"EHGLP3"}'
+
+
+def test_apply_adapter_output_to_draft_missing_search_passthrough() -> None:
+    original_tool_calls = [
+        {
+            "id": "call_cancel",
+            "type": "function",
+            "function": {
+                "name": "cancel_reservation",
+                "arguments": '{"reservation_id":"WRONG"}',
+            },
+        }
+    ]
+    final_text, final_tool_calls, final_function_call = apply_adapter_output_to_draft(
+        content="Draft answer",
+        tool_calls=original_tool_calls,
+        function_call=None,
+        adapter_output="<<<<<<< SEARCH\nmissing\n=======\nupdated\n>>>>>>> REPLACE",
+    )
+
+    assert final_text == "Draft answer"
+    assert final_function_call is None
+    assert final_tool_calls == original_tool_calls

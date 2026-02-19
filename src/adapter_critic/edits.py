@@ -82,5 +82,18 @@ def apply_adapter_output_to_draft(
     adapter_output: str,
 ) -> tuple[str, list[dict[str, Any]] | None, dict[str, Any] | None]:
     draft_payload = build_adapter_draft_payload(content=content, tool_calls=tool_calls, function_call=function_call)
-    updated_payload = apply_adapter_output(draft=draft_payload, adapter_output=adapter_output)
+    stripped = adapter_output.strip().lower()
+    if stripped == "lgtm":
+        return content, tool_calls, function_call
+
+    matches = EDIT_BLOCK_RE.findall(adapter_output)
+    if not matches:
+        raise ValueError("malformed adapter edits")
+
+    updated_payload = draft_payload
+    for search_text, replace_text in matches:
+        if search_text not in updated_payload:
+            return content, tool_calls, function_call
+        updated_payload = updated_payload.replace(search_text, replace_text, 1)
+
     return parse_adapter_draft_payload(updated_payload)

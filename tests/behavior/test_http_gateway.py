@@ -4,10 +4,10 @@ from typing import Any
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from adapter_critic.contracts import ChatMessage
-from adapter_critic.http_gateway import OpenAICompatibleHttpGateway
+from adapter_critic.http_gateway import OpenAICompatibleHttpGateway, UpstreamResponseFormatError
 
 
 @pytest.mark.anyio
@@ -53,3 +53,124 @@ async def test_openai_compatible_http_gateway(monkeypatch: pytest.MonkeyPatch) -
     assert result.usage.prompt_tokens == 2
     assert result.usage.completion_tokens == 3
     assert result.usage.total_tokens == 5
+
+
+@pytest.mark.anyio
+async def test_openai_compatible_http_gateway_uses_stage_api_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream = FastAPI()
+
+    @upstream.post("/v1/chat/completions")
+    async def chat(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+        assert payload["model"] == "api-model"
+        assert request.headers.get("authorization") == "Bearer groq-secret"
+        return {
+            "id": "chatcmpl-upstream",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "api-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+        }
+
+    transport = httpx.ASGITransport(app=upstream)
+    original_async_client = httpx.AsyncClient
+
+    def patched_async_client(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        return original_async_client(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_async_client)
+    monkeypatch.setenv("GROQ_API_KEY", "groq-secret")
+
+    gateway = OpenAICompatibleHttpGateway(api_key=None, default_api_key_env="OPENAI_API_KEY", timeout_seconds=5.0)
+    result = await gateway.complete(
+        model="api-model",
+        base_url="http://testserver/v1",
+        messages=[ChatMessage(role="user", content="hello")],
+        api_key_env="GROQ_API_KEY",
+    )
+
+    assert result.content == "ok"
+
+
+@pytest.mark.anyio
+async def test_openai_compatible_http_gateway_uses_default_api_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    upstream = FastAPI()
+
+    @upstream.post("/v1/chat/completions")
+    async def chat(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+        assert payload["model"] == "api-model"
+        assert request.headers.get("authorization") == "Bearer openai-secret"
+        return {
+            "id": "chatcmpl-upstream",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "api-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+        }
+
+    transport = httpx.ASGITransport(app=upstream)
+    original_async_client = httpx.AsyncClient
+
+    def patched_async_client(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        return original_async_client(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_async_client)
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
+
+    gateway = OpenAICompatibleHttpGateway(api_key=None, default_api_key_env="OPENAI_API_KEY", timeout_seconds=5.0)
+    result = await gateway.complete(
+        model="api-model",
+        base_url="http://testserver/v1",
+        messages=[ChatMessage(role="user", content="hello")],
+    )
+
+    assert result.content == "ok"
+
+
+@pytest.mark.anyio
+async def test_openai_compatible_http_gateway_raises_for_missing_choices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upstream = FastAPI()
+
+    @upstream.post("/v1/chat/completions")
+    async def chat(payload: dict[str, Any]) -> dict[str, Any]:
+        assert payload["model"] == "api-model"
+        return {"error": {"message": "temporary upstream failure"}}
+
+    transport = httpx.ASGITransport(app=upstream)
+    original_async_client = httpx.AsyncClient
+
+    def patched_async_client(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        return original_async_client(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_async_client)
+
+    gateway = OpenAICompatibleHttpGateway(api_key="dummy", timeout_seconds=5.0)
+    with pytest.raises(UpstreamResponseFormatError) as exc_info:
+        await gateway.complete(
+            model="api-model",
+            base_url="http://testserver/v1",
+            messages=[ChatMessage(role="user", content="hello")],
+        )
+
+    exc = exc_info.value
+    assert exc.reason == "response missing non-empty choices"
+    assert exc.model == "api-model"
+    assert exc.base_url == "http://testserver/v1"
+    assert exc.message_count == 1
+    assert exc.status_code == 200
+    assert '"error"' in exc.payload_preview

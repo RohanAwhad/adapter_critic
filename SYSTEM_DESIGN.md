@@ -1,114 +1,189 @@
 # System Design
 
-## Goal
+## Purpose
 
-Provide an OpenAI-compatible `POST /v1/chat/completions` wrapper that can run one of three workflows:
+`adapter_critic` exposes an OpenAI-compatible `POST /v1/chat/completions` endpoint and routes each request into one of three workflows:
 
-- `direct`: single API model call
-- `adapter`: API draft then adapter review/edit
-- `critic`: API draft, critic feedback, second API pass
+- `direct`: API only
+- `adapter`: API -> Adapter -> final text (via `lgtm` or SEARCH/REPLACE edits)
+- `critic`: API -> Critic -> API second pass
 
-## High-Level Architecture
+## Design Shape
 
-- Request entry: `src/adapter_critic/app.py`
-- Request contracts/parsing: `src/adapter_critic/contracts.py`
-- Startup config and runtime resolution: `src/adapter_critic/config.py`
-- Workflow dispatch: `src/adapter_critic/dispatcher.py`
-- Workflow implementations:
-  - `src/adapter_critic/workflows/direct.py`
-  - `src/adapter_critic/workflows/adapter.py`
-  - `src/adapter_critic/workflows/critic.py`
-- Prompt templates: `src/adapter_critic/prompts.py`
-- Adapter edit application: `src/adapter_critic/edits.py`
-- Token aggregation: `src/adapter_critic/usage.py`
-- OpenAI-compatible response builder: `src/adapter_critic/response_builder.py`
-- Upstream transport abstraction: `src/adapter_critic/upstream.py`
-- Built-in OpenAI-compatible HTTP gateway: `src/adapter_critic/http_gateway.py`
-- Built-in server entrypoint: `src/adapter_critic/server.py`
+- Functional-first pipeline for request parsing, config resolution, dispatch, usage aggregation, and response assembly.
+- One minimal runtime state holder: `RuntimeState` in `src/adapter_critic/runtime.py`.
+- Side effects isolated to:
+  - FastAPI HTTP boundary in `src/adapter_critic/app.py`
+  - upstream model calls via `UpstreamGateway` (`src/adapter_critic/upstream.py`)
 
-## Core Contracts
+`RuntimeState` fields:
 
-- Incoming request must include:
-  - `model: str`
-  - `messages: [{role, content}]`
-- Workflow overrides are read from either:
-  - top-level `x_adapter_critic`
-  - `extra_body.x_adapter_critic`
-- Startup routing config maps served model ids to workflow + targets:
-  - `served_models.<model_id>.mode`
-  - `served_models.<model_id>.api`
-  - optional `served_models.<model_id>.adapter`
-  - optional `served_models.<model_id>.critic`
+- `config`
+- `gateway`
+- `id_provider`
+- `time_provider`
 
-## Runtime Resolution
+## Core Modules
 
-1. Parse request and extract overrides.
-2. Look up served model in startup config.
-3. Resolve effective mode and stage targets with precedence:
-   - request override
-   - startup default
-4. Validate required targets exist for selected mode.
-5. Dispatch to selected workflow.
+- `src/adapter_critic/server.py`: CLI entrypoint, config load, app boot.
+- `src/adapter_critic/app.py`: route handler and top-level orchestration.
+- `src/adapter_critic/contracts.py`: request models + override extraction.
+- `src/adapter_critic/config.py`: served-model routing + override resolution.
+- `src/adapter_critic/dispatcher.py`: mode-to-workflow dispatch.
+- `src/adapter_critic/workflows/*.py`: mode implementations.
+- `src/adapter_critic/prompts.py`: adapter/critic prompt composition.
+- `src/adapter_critic/edits.py`: adapter SEARCH/REPLACE application.
+- `src/adapter_critic/usage.py`: token aggregation.
+- `src/adapter_critic/response_builder.py`: OpenAI-shaped response + extension payload.
+- `src/adapter_critic/http_gateway.py`: built-in OpenAI-compatible upstream transport.
 
-## Workflow Behavior
+## Request/Response Contracts
 
-### Direct
+Request minimum:
 
-- One call to API target.
-- Final response is API response content.
+- `model: str`
+- `messages: [{role, content}]`
 
-### Adapter
+Workflow overrides:
 
-1. Call API target for draft.
-2. Build adapter prompt using full history + draft.
-3. Call adapter target.
-4. Apply adapter output:
-   - `lgtm` => keep draft
-   - search/replace blocks => apply edits sequentially
-5. Return edited or original draft.
+- top-level `x_adapter_critic`
+- or `extra_body.x_adapter_critic`
+- precedence: top-level wins if both exist
+- mode-stage fallback: if adapter/critic target is missing, that stage falls back to resolved API target
+- partial secondary override without enough data to resolve a target is rejected
 
-### Critic
+Per-served-model prompt config (startup):
 
-1. Call API target for draft.
-2. Build critic prompt using full history + system prompt + draft.
-3. Call critic target.
-4. Build second-pass API prompt with critique + prior draft context.
-5. Call API target again for final output.
+- `adapter_system_prompt`
+- `critic_system_prompt`
+- if not set, defaults from `src/adapter_critic/prompts.py` are used
 
-## Response Shape
+Response:
 
-Response keeps OpenAI chat completion shape (`id`, `object`, `created`, `model`, `choices`, `usage`) and adds:
+- standard OpenAI chat-completions shape (`id`, `object`, `created`, `model`, `choices`, `usage`)
+- extension payload at `adapter_critic`:
+  - `mode`
+  - `intermediate`
+  - `tokens.stages`
+  - `tokens.total`
 
-- `adapter_critic.mode`
-- `adapter_critic.intermediate` (stage outputs)
-- `adapter_critic.tokens.stages` (per-stage token usage)
-- `adapter_critic.tokens.total` (aggregated token usage)
+Invariant:
 
-## Upstream Integration Model
+- top-level `usage == adapter_critic.tokens.total`
 
-- All model calls go through `UpstreamGateway.complete(model, base_url, messages)`.
-- Built-in gateway implementation posts to `<base_url>/chat/completions`.
-- This keeps workflow logic independent from transport/provider details.
+## ASCII System Diagram
 
-## Operations
+```text
+                               +-------------------------+
+                               |     RuntimeState        |
+                               |-------------------------|
+                               | config                  |
+                               | gateway (UpstreamGateway)|
+                               | id_provider             |
+                               | time_provider           |
+                               +-----------+-------------+
+                                           |
+Client                                      |
+  |                                         |
+  v                                         v
++-------------------------------+   +--------------------------+
+| FastAPI /v1/chat/completions |-->| app.py orchestration     |
+| (create_app in app.py)       |   | parse -> resolve -> run  |
++---------------+---------------+   +------------+-------------+
+                |                                |
+                v                                v
+      +--------------------+           +-----------------------+
+      | contracts.py       |           | config.py             |
+      | parse_request_*    |           | resolve_runtime_*     |
+      +--------------------+           +-----------------------+
+                           \           /
+                            v         v
+                        +------------------+
+                        | dispatcher.py    |
+                        | mode dispatch    |
+                        +----+--------+----+
+                             |        |
+                             |        +-------------------------+
+                             v                                  v
+                   +-------------------+             +-------------------+
+                   | workflows/direct  |             | workflows/adapter |
+                   | (1 API call)      |             | API->Adapter->edit|
+                   +-------------------+             +-------------------+
+                              \                           /
+                               \                         /
+                                v                       v
+                               +-------------------------+
+                               | workflows/critic        |
+                               | API->Critic->API        |
+                               +-----------+-------------+
+                                           |
+                                           v
+                               +-------------------------+
+                               | usage.py + response_*   |
+                               | tokens + final payload  |
+                               +-----------+-------------+
+                                           |
+                                           v
+                                       HTTP response
 
-- Start with built-in CLI:
-  - `uv run adapter-critic-server --config config.json --port 8000`
-- API key is optional and read from env (`OPENAI_API_KEY` by default).
-- Per-request overrides can change mode/model/base_url without restarting server.
+Upstream calls go through:
+app/workflows -> UpstreamGateway.complete(...) -> http_gateway.py -> <base_url>/chat/completions
+```
 
-## Testing Strategy
+## ASCII Sequence Diagram
 
-- Unit tests (`tests/unit`): contracts, config resolution, edit parser, prompts, token aggregation, response schema.
-- Behavior tests (`tests/behavior`): direct/adapter/critic flows, served-model routing, override precedence, SDK compatibility, telemetry visibility, HTTP gateway behavior.
-- Verification chain:
-  - `ruff format --check`
-  - `ruff check`
-  - `mypy`
-  - `pytest`
+```text
+Common entry path
+-----------------
+Client
+  -> app.chat_completions
+  -> contracts.parse_request_payload
+  -> config.resolve_runtime_config
+  -> dispatcher.dispatch(mode)
+
+Mode: direct
+------------
+dispatcher
+  -> workflows.run_direct
+  -> gateway.complete(api)
+  <- api response
+  -> usage.aggregate_usage
+  -> response_builder.build_response
+  <- response (mode=direct)
+
+Mode: adapter
+-------------
+dispatcher
+  -> workflows.run_adapter
+  -> gateway.complete(api)            # draft
+  <- api_draft
+  -> prompts.build_adapter_messages
+  -> gateway.complete(adapter)
+  <- adapter_review
+  -> edits.apply_adapter_output
+  -> usage.aggregate_usage
+  -> response_builder.build_response
+  <- response (mode=adapter)
+
+Mode: critic
+------------
+dispatcher
+  -> workflows.run_critic
+  -> gateway.complete(api)            # draft
+  <- api_draft
+  -> prompts.build_critic_messages
+  -> gateway.complete(critic)
+  <- critic_feedback
+  -> prompts.build_critic_second_pass_messages
+  -> gateway.complete(api)            # second pass
+  <- api_final
+  -> usage.aggregate_usage
+  -> response_builder.build_response
+  <- response (mode=critic)
+```
 
 ## Current Boundaries
 
-- Non-streaming only (`stream=true` not implemented).
-- Message contract currently assumes text `content` (no multimodal structure).
-- Tool-call passthrough/transforms are not yet modeled.
+- No streaming path (`stream=true`) in current implementation.
+- Message content contract is text-only (`content: str`).
+- Built-in gateway expects OpenAI-compatible response shape with `choices[0].message.content` and `usage`.

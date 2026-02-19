@@ -13,7 +13,11 @@ async def run_adapter(runtime: RuntimeConfig, messages: list[ChatMessage], gatew
         raise ValueError("adapter runtime is missing adapter target")
 
     api_draft = await gateway.complete(model=runtime.api.model, base_url=runtime.api.base_url, messages=messages)
-    adapter_messages = build_adapter_messages(messages=messages, draft=api_draft.content)
+    adapter_messages = build_adapter_messages(
+        messages=messages,
+        draft=api_draft.content,
+        adapter_system_prompt=runtime.adapter_system_prompt,
+    )
     adapter_review = await gateway.complete(
         model=runtime.adapter.model,
         base_url=runtime.adapter.base_url,

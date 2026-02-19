@@ -29,3 +29,29 @@ async def test_openai_sdk_smoke_with_extension(base_config: AppConfig) -> None:
     assert adapter_critic is not None
     assert adapter_critic["mode"] == "direct"
     assert "tokens" in adapter_critic
+
+
+@pytest.mark.anyio
+async def test_openai_sdk_adapter_mode_without_secondary_target_uses_api_target(base_config: AppConfig) -> None:
+    gateway = FakeGateway(
+        [
+            UpstreamResult(content="draft", usage=usage(1, 1, 2)),
+            UpstreamResult(content="lgtm", usage=usage(1, 1, 2)),
+        ]
+    )
+    app = create_app(config=base_config, gateway=gateway)
+    transport = httpx.ASGITransport(app=app)
+    http_client = httpx.AsyncClient(transport=transport, base_url="http://testserver")
+    client = AsyncOpenAI(api_key="test", base_url="http://testserver/v1", http_client=http_client)
+
+    response = await client.chat.completions.create(
+        model="served-direct",
+        messages=[{"role": "user", "content": "hello"}],
+        extra_body={"x_adapter_critic": {"mode": "adapter"}},
+    )
+    await client.close()
+
+    adapter_critic = response.model_extra.get("adapter_critic") if response.model_extra is not None else None
+    assert adapter_critic is not None
+    assert adapter_critic["mode"] == "adapter"
+    assert [call["model"] for call in gateway.calls] == ["api-model", "api-model"]

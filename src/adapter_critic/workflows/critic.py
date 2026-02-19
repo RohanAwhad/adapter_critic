@@ -23,6 +23,7 @@ async def run_critic(runtime: RuntimeConfig, messages: list[ChatMessage], gatewa
         messages=messages,
         system_prompt=_first_system_prompt(messages),
         draft=api_draft.content,
+        critic_system_prompt=runtime.critic_system_prompt,
     )
     critic_feedback = await gateway.complete(
         model=runtime.critic.model,

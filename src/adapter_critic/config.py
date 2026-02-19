@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from .contracts import AdapterCriticOverrides, Mode
+from .prompts import ADAPTER_SYSTEM_PROMPT, CRITIC_SYSTEM_PROMPT
 
 
 class StageTarget(BaseModel):
@@ -15,6 +16,8 @@ class ServedModelConfig(BaseModel):
     api: StageTarget
     adapter: StageTarget | None = None
     critic: StageTarget | None = None
+    adapter_system_prompt: str | None = None
+    critic_system_prompt: str | None = None
 
 
 class AppConfig(BaseModel):
@@ -29,6 +32,8 @@ class RuntimeConfig(BaseModel):
     api: StageTarget
     adapter: StageTarget | None = None
     critic: StageTarget | None = None
+    adapter_system_prompt: str
+    critic_system_prompt: str
 
 
 def _resolve_stage(base: StageTarget | None, model: str | None, base_url: str | None) -> StageTarget | None:
@@ -53,13 +58,21 @@ def resolve_runtime_config(
     if api_target is None:
         return None
 
+    adapter_override_provided = overrides.adapter_model is not None or overrides.adapter_base_url is not None
+    critic_override_provided = overrides.critic_model is not None or overrides.critic_base_url is not None
+
     adapter_target = _resolve_stage(served.adapter, overrides.adapter_model, overrides.adapter_base_url)
     critic_target = _resolve_stage(served.critic, overrides.critic_model, overrides.critic_base_url)
 
     if mode == "adapter" and adapter_target is None:
-        return None
+        if adapter_override_provided:
+            return None
+        adapter_target = api_target
+
     if mode == "critic" and critic_target is None:
-        return None
+        if critic_override_provided:
+            return None
+        critic_target = api_target
 
     return RuntimeConfig(
         served_model=served_model,
@@ -67,4 +80,10 @@ def resolve_runtime_config(
         api=api_target,
         adapter=adapter_target,
         critic=critic_target,
+        adapter_system_prompt=(
+            served.adapter_system_prompt if served.adapter_system_prompt is not None else ADAPTER_SYSTEM_PROMPT
+        ),
+        critic_system_prompt=(
+            served.critic_system_prompt if served.critic_system_prompt is not None else CRITIC_SYSTEM_PROMPT
+        ),
     )

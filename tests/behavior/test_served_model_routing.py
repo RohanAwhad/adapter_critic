@@ -72,3 +72,46 @@ def test_request_override_precedence(base_config: AppConfig) -> None:
     )
     assert response.status_code == 200
     assert [call["model"] for call in gateway.calls] == ["api-model", "adapter-override"]
+
+
+def test_mode_override_without_secondary_target_uses_api_target(base_config: AppConfig) -> None:
+    client, gateway = build_client(
+        base_config,
+        [
+            UpstreamResult(content="draft", usage=usage(1, 1, 2)),
+            UpstreamResult(content="lgtm", usage=usage(1, 1, 2)),
+        ],
+    )
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "served-direct",
+            "messages": [{"role": "user", "content": "hi"}],
+            "extra_body": {"x_adapter_critic": {"mode": "adapter"}},
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["adapter_critic"]["mode"] == "adapter"
+    assert [call["model"] for call in gateway.calls] == ["api-model", "api-model"]
+
+
+def test_critic_mode_override_without_secondary_target_uses_api_target(base_config: AppConfig) -> None:
+    client, gateway = build_client(
+        base_config,
+        [
+            UpstreamResult(content="draft", usage=usage(1, 1, 2)),
+            UpstreamResult(content="feedback", usage=usage(1, 1, 2)),
+            UpstreamResult(content="final", usage=usage(1, 1, 2)),
+        ],
+    )
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "served-direct",
+            "messages": [{"role": "user", "content": "hi"}],
+            "extra_body": {"x_adapter_critic": {"mode": "critic"}},
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["adapter_critic"]["mode"] == "critic"
+    assert [call["model"] for call in gateway.calls] == ["api-model", "api-model", "api-model"]

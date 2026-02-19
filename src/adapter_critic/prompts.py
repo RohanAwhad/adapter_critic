@@ -18,9 +18,11 @@ def _render_history(messages: list[ChatMessage]) -> str:
     return "\n".join(rendered)
 
 
-def build_adapter_messages(messages: list[ChatMessage], draft: str) -> list[ChatMessage]:
+def build_adapter_messages(
+    messages: list[ChatMessage], draft: str, adapter_system_prompt: str = ADAPTER_SYSTEM_PROMPT
+) -> list[ChatMessage]:
     return [
-        ChatMessage(role="system", content=ADAPTER_SYSTEM_PROMPT),
+        ChatMessage(role="system", content=adapter_system_prompt),
         ChatMessage(
             role="user",
             content=(f"Conversation history:\n{_render_history(messages)}\n\nLatest API draft:\n{draft}"),
@@ -28,9 +30,14 @@ def build_adapter_messages(messages: list[ChatMessage], draft: str) -> list[Chat
     ]
 
 
-def build_critic_messages(messages: list[ChatMessage], system_prompt: str, draft: str) -> list[ChatMessage]:
+def build_critic_messages(
+    messages: list[ChatMessage],
+    system_prompt: str,
+    draft: str,
+    critic_system_prompt: str = CRITIC_SYSTEM_PROMPT,
+) -> list[ChatMessage]:
     return [
-        ChatMessage(role="system", content=CRITIC_SYSTEM_PROMPT),
+        ChatMessage(role="system", content=critic_system_prompt),
         ChatMessage(
             role="user",
             content=(

@@ -45,6 +45,17 @@ def _is_adapter_candidate_usable(
     return not (require_call and not has_call)
 
 
+def _requires_tool_call(request_options: dict[str, Any]) -> bool:
+    tool_choice = request_options.get("tool_choice")
+    if tool_choice == "required":
+        return True
+    if isinstance(tool_choice, dict):
+        return tool_choice.get("type") == "function"
+
+    function_call = request_options.get("function_call")
+    return bool(isinstance(function_call, dict))
+
+
 async def run_adapter(
     runtime: RuntimeConfig,
     messages: list[ChatMessage],
@@ -63,7 +74,7 @@ async def run_adapter(
     )
     api_tool_calls = normalize_tool_calls(api_draft.tool_calls)
     api_function_call = api_draft.function_call if api_tool_calls is None else None
-    api_requires_call = api_tool_calls is not None or api_function_call is not None
+    requested_requires_call = _requires_tool_call(request_options)
 
     draft_payload = build_adapter_draft_payload(
         content=api_draft.content,
@@ -111,7 +122,7 @@ async def run_adapter(
             content=candidate_text,
             tool_calls=candidate_tool_calls,
             function_call=candidate_function_call,
-            require_call=api_requires_call,
+            require_call=requested_requires_call,
         ):
             continue
 

@@ -106,7 +106,65 @@ def test_adapter_mode_retries_after_invalid_adapter_output(base_config: AppConfi
     assert [call["model"] for call in gateway.calls] == ["api-model", "adapter-model", "adapter-model"]
 
 
-def test_adapter_mode_falls_back_when_adapter_replaces_tool_call_with_text(base_config: AppConfig) -> None:
+def test_adapter_mode_accepts_drop_tool_call_when_tool_choice_auto(base_config: AppConfig) -> None:
+    adapter_rewrite = (
+        '{"decision":"patch","patches":['
+        '{"op":"replace","path":"/content","value":"Please confirm the reservation id."},'
+        '{"op":"replace","path":"/tool_calls","value":[]}'
+        "]}"
+    )
+
+    client, gateway = build_client(
+        base_config,
+        [
+            UpstreamResult(
+                content="",
+                usage=usage(2, 2, 4),
+                tool_calls=[
+                    {
+                        "id": "call_cancel",
+                        "type": "function",
+                        "function": {
+                            "name": "cancel_reservation",
+                            "arguments": '{"reservation_id":"EHGLP3"}',
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            ),
+            UpstreamResult(content=adapter_rewrite, usage=usage(1, 1, 2)),
+        ],
+    )
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "served-adapter",
+            "messages": [{"role": "user", "content": "cancel reservation EHGLP3"}],
+            "x_adapter_critic": {"max_adapter_retries": 1},
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"reservation_id": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+        },
+    )
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["choices"][0]["finish_reason"] == "stop"
+    assert payload["choices"][0]["message"]["content"] == "Please confirm the reservation id."
+    assert "tool_calls" not in payload["choices"][0]["message"]
+    assert [call["model"] for call in gateway.calls] == ["api-model", "adapter-model"]
+
+
+def test_adapter_mode_falls_back_when_tool_choice_required_and_adapter_drops_call(base_config: AppConfig) -> None:
     adapter_rewrite = (
         '{"decision":"patch","patches":['
         '{"op":"replace","path":"/content","value":"Please confirm the reservation id."},'
@@ -154,7 +212,7 @@ def test_adapter_mode_falls_back_when_adapter_replaces_tool_call_with_text(base_
                     },
                 }
             ],
-            "tool_choice": "auto",
+            "tool_choice": "required",
         },
     )
     payload = response.json()

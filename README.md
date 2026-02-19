@@ -1,26 +1,18 @@
 # adapter_critic
 
-FastAPI wrapper for OpenAI-compatible Chat Completions with three workflows:
+FastAPI wrapper for OpenAI-compatible `/v1/chat/completions` with 3 workflows:
 
 - `direct`: API only
-- `adapter`: API draft -> adapter review/edit -> final
+- `adapter`: API draft -> adapter search/replace review -> final
 - `critic`: API draft -> critic feedback -> second API pass -> final
 
-## How It Works
+## Built-in Gateway
 
-1. `POST /v1/chat/completions` is parsed in `src/adapter_critic/app.py`.
-2. Routing config + request overrides are resolved in `src/adapter_critic/config.py`.
-3. Workflow dispatch runs from `src/adapter_critic/dispatcher.py`:
-   - `src/adapter_critic/workflows/direct.py`
-   - `src/adapter_critic/workflows/adapter.py`
-   - `src/adapter_critic/workflows/critic.py`
-4. Response is OpenAI-compatible plus telemetry from `src/adapter_critic/response_builder.py`.
+This repo now ships with a built-in HTTP gateway (`src/adapter_critic/http_gateway.py`) that calls upstream OpenAI-compatible servers.
 
-## Why Startup Felt Unclear
-
-This repo is currently library-first. It has `create_app(...)`, but no built-in CLI server entrypoint or built-in upstream HTTP gateway.
-
-Use the launcher below.
+- Upstream URL is taken from per-stage `base_url` in your config
+- Request path used upstream is `<base_url>/chat/completions`
+- If `OPENAI_API_KEY` (or configured env var) is set, it sends `Authorization: Bearer ...`
 
 ## Quick Start
 
@@ -53,82 +45,43 @@ uv sync --dev
 }
 ```
 
-### 3) Create `run_server.py`
-
-```python
-from __future__ import annotations
-
-import json
-import os
-from pathlib import Path
-
-import httpx
-import uvicorn
-
-from adapter_critic.app import create_app
-from adapter_critic.config import AppConfig
-from adapter_critic.contracts import ChatMessage
-from adapter_critic.upstream import TokenUsage, UpstreamResult
-
-
-class HttpGateway:
-    def __init__(self, api_key: str | None) -> None:
-        self._api_key = api_key
-
-    async def complete(self, *, model: str, base_url: str, messages: list[ChatMessage]) -> UpstreamResult:
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
-
-        payload = {
-            "model": model,
-            "messages": [message.model_dump() for message in messages],
-        }
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(f"{base_url.rstrip('/')}/chat/completions", headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-
-        usage = data.get("usage", {})
-        content = data["choices"][0]["message"].get("content") or ""
-        return UpstreamResult(
-            content=content,
-            usage=TokenUsage(
-                prompt_tokens=int(usage.get("prompt_tokens", 0)),
-                completion_tokens=int(usage.get("completion_tokens", 0)),
-                total_tokens=int(usage.get("total_tokens", 0)),
-            ),
-        )
-
-
-def main() -> None:
-    config_data = json.loads(Path("config.json").read_text())
-    config = AppConfig.model_validate(config_data)
-    gateway = HttpGateway(api_key=os.environ.get("OPENAI_API_KEY"))
-    app = create_app(config=config, gateway=gateway)
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-if __name__ == "__main__":
-    main()
-```
-
-### 4) Start
+### 3) Start server (one command)
 
 ```bash
-OPENAI_API_KEY=<your_key_if_needed> uv run python run_server.py
+OPENAI_API_KEY=<your_key_if_needed> uv run adapter-critic-server --config config.json --host 0.0.0.0 --port 8000
+```
+
+Alternative command:
+
+```bash
+OPENAI_API_KEY=<your_key_if_needed> uv run python -m adapter_critic.server --config config.json
 ```
 
 Server endpoint:
 
 - `http://localhost:8000/v1/chat/completions`
 
-## Request Examples
+## CLI Options
+
+```bash
+uv run adapter-critic-server --help
+```
+
+Key options:
+
+- `--config` path to startup routing config JSON (default `config.json`)
+- `--api-key-env` env var name for bearer token (default `OPENAI_API_KEY`)
+- `--timeout-seconds` upstream request timeout (default `120.0`)
+- `--reload` for local dev autoreload
+
+## Request Overrides
 
 Control overrides are accepted in either location:
 
-- top-level `x_adapter_critic` (how OpenAI SDK `extra_body` arrives on wire)
-- nested `extra_body.x_adapter_critic` (for direct raw JSON requests)
+- top-level `x_adapter_critic` (how OpenAI SDK `extra_body` arrives over the wire)
+- nested `extra_body.x_adapter_critic` (raw JSON callers)
+
+## Request Examples
 
 ### Direct (startup routing)
 
@@ -182,6 +135,7 @@ resp = client.chat.completions.create(
     messages=[{"role": "user", "content": "hello"}],
     extra_body={"x_adapter_critic": {"mode": "adapter"}},
 )
+
 print(resp.choices[0].message.content)
 print(resp.model_extra["adapter_critic"])
 ```
@@ -194,3 +148,12 @@ Responses keep standard OpenAI fields and add:
 - `adapter_critic.intermediate`
 - `adapter_critic.tokens.stages`
 - `adapter_critic.tokens.total`
+
+## Dev Checks
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy .
+uv run pytest -q
+```

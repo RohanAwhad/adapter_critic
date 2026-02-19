@@ -11,6 +11,9 @@ dependencies = [
   "uvicorn>=0.35.0",
 ]
 
+[project.scripts]
+adapter-critic-server = "adapter_critic.server:main"
+
 [dependency-groups]
 dev = [
   "mypy>=1.17.1",

@@ -25,7 +25,7 @@ def test_adapter_prompt_is_configurable_per_served_model() -> None:
         _prompt_config(),
         [
             UpstreamResult(content="draft", usage=usage(1, 1, 2)),
-            UpstreamResult(content="lgtm", usage=usage(1, 1, 2)),
+            UpstreamResult(content='{"decision":"lgtm"}', usage=usage(1, 1, 2)),
         ],
     )
 

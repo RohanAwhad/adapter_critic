@@ -36,7 +36,7 @@ async def test_openai_sdk_adapter_mode_without_secondary_target_uses_api_target(
     gateway = FakeGateway(
         [
             UpstreamResult(content="draft", usage=usage(1, 1, 2)),
-            UpstreamResult(content="lgtm", usage=usage(1, 1, 2)),
+            UpstreamResult(content='{"decision":"lgtm"}', usage=usage(1, 1, 2)),
         ]
     )
     app = create_app(config=base_config, gateway=gateway)

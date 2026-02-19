@@ -20,7 +20,7 @@ def test_startup_served_model_adapter_without_override(base_config: AppConfig) -
         base_config,
         [
             UpstreamResult(content="a", usage=usage(1, 1, 2)),
-            UpstreamResult(content="lgtm", usage=usage(1, 1, 2)),
+            UpstreamResult(content='{"decision":"lgtm"}', usage=usage(1, 1, 2)),
         ],
     )
     response = client.post(
@@ -53,7 +53,7 @@ def test_request_override_precedence(base_config: AppConfig) -> None:
         base_config,
         [
             UpstreamResult(content="draft", usage=usage(1, 1, 2)),
-            UpstreamResult(content="lgtm", usage=usage(1, 1, 2)),
+            UpstreamResult(content='{"decision":"lgtm"}', usage=usage(1, 1, 2)),
         ],
     )
     response = client.post(
@@ -79,7 +79,7 @@ def test_mode_override_without_secondary_target_uses_api_target(base_config: App
         base_config,
         [
             UpstreamResult(content="draft", usage=usage(1, 1, 2)),
-            UpstreamResult(content="lgtm", usage=usage(1, 1, 2)),
+            UpstreamResult(content='{"decision":"lgtm"}', usage=usage(1, 1, 2)),
         ],
     )
     response = client.post(

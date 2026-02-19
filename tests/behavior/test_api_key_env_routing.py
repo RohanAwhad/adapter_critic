@@ -53,7 +53,7 @@ def test_adapter_mode_routes_stage_api_key_env() -> None:
         _api_key_env_config(),
         [
             UpstreamResult(content="draft", usage=usage(1, 1, 2)),
-            UpstreamResult(content="lgtm", usage=usage(1, 1, 2)),
+            UpstreamResult(content='{"decision":"lgtm"}', usage=usage(1, 1, 2)),
         ],
     )
     response = client.post(

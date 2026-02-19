@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from ..config import RuntimeConfig
 from ..contracts import ChatMessage
 from ..edits import apply_adapter_output_to_draft, build_adapter_draft_payload
-from ..prompts import build_adapter_messages
+from ..prompts import ADAPTER_RESPONSE_FORMAT, build_adapter_messages
 from ..response_shape import (
     has_valid_function_call,
     has_valid_tool_calls,
@@ -77,6 +78,7 @@ async def run_adapter(
     )
     adapter_usage = TokenUsage()
     adapter_output = ""
+    adapter_request_options = {"response_format": deepcopy(ADAPTER_RESPONSE_FORMAT)}
 
     final_text = api_draft.content
     final_tool_calls = api_tool_calls
@@ -89,6 +91,7 @@ async def run_adapter(
             base_url=runtime.adapter.base_url,
             messages=adapter_messages,
             api_key_env=runtime.adapter.api_key_env,
+            request_options=adapter_request_options,
         )
         adapter_usage = _add_usage(adapter_usage, adapter_review.usage)
         adapter_output = adapter_review.content

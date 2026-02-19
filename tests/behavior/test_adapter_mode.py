@@ -11,7 +11,7 @@ def test_adapter_mode_path(base_config: AppConfig) -> None:
         [
             UpstreamResult(content="Hello wrld", usage=usage(2, 2, 4)),
             UpstreamResult(
-                content="<<<<<<< SEARCH\nwrld\n=======\nworld\n>>>>>>> REPLACE",
+                content=('{"decision":"patch","patches":[{"op":"replace","path":"/content","value":"Hello world"}]}'),
                 usage=usage(1, 3, 4),
             ),
         ],
@@ -36,7 +36,7 @@ def test_adapter_mode_missing_search_passthrough(base_config: AppConfig) -> None
         [
             UpstreamResult(content="Hello world", usage=usage(2, 2, 4)),
             UpstreamResult(
-                content="<<<<<<< SEARCH\nnot-in-draft\n=======\nreplacement\n>>>>>>> REPLACE",
+                content='{"decision":"patch","patches":[{"op":"replace","path":"/unknown","value":"replacement"}]}',
                 usage=usage(1, 3, 4),
             ),
         ],
@@ -74,7 +74,7 @@ def test_adapter_mode_retries_after_invalid_adapter_output(base_config: AppConfi
                 finish_reason="tool_calls",
             ),
             UpstreamResult(content="not valid edits", usage=usage(1, 1, 2)),
-            UpstreamResult(content="lgtm", usage=usage(1, 1, 2)),
+            UpstreamResult(content='{"decision":"lgtm"}', usage=usage(1, 1, 2)),
         ],
     )
     response = client.post(
@@ -108,33 +108,10 @@ def test_adapter_mode_retries_after_invalid_adapter_output(base_config: AppConfi
 
 def test_adapter_mode_falls_back_when_adapter_replaces_tool_call_with_text(base_config: AppConfig) -> None:
     adapter_rewrite = (
-        "<<<<<<< SEARCH\n"
-        "<ADAPTER_DRAFT_CONTENT>\n"
-        "\n"
-        "</ADAPTER_DRAFT_CONTENT>\n"
-        "=======\n"
-        "<ADAPTER_DRAFT_CONTENT>\n"
-        "Please confirm the reservation id.\n"
-        "</ADAPTER_DRAFT_CONTENT>\n"
-        ">>>>>>> REPLACE\n"
-        "<<<<<<< SEARCH\n"
-        "<ADAPTER_DRAFT_TOOL_CALLS>\n"
-        "[\n"
-        "  {\n"
-        '    "function": {\n'
-        '      "arguments": "{\\"reservation_id\\":\\"EHGLP3\\"}",\n'
-        '      "name": "cancel_reservation"\n'
-        "    },\n"
-        '    "id": "call_cancel",\n'
-        '    "type": "function"\n'
-        "  }\n"
-        "]\n"
-        "</ADAPTER_DRAFT_TOOL_CALLS>\n"
-        "=======\n"
-        "<ADAPTER_DRAFT_TOOL_CALLS>\n"
-        "[]\n"
-        "</ADAPTER_DRAFT_TOOL_CALLS>\n"
-        ">>>>>>> REPLACE"
+        '{"decision":"patch","patches":['
+        '{"op":"replace","path":"/content","value":"Please confirm the reservation id."},'
+        '{"op":"replace","path":"/tool_calls","value":[]}'
+        "]}"
     )
 
     client, gateway = build_client(

@@ -160,8 +160,8 @@ Invalid routing/overrides return `400` with `invalid model routing or overrides`
 
 Adapter edit semantics:
 
-- adapter returns `lgtm` to accept draft unchanged, or
-- adapter returns one or more SEARCH/REPLACE blocks applied sequentially.
+- adapter runs in JSON mode and returns `{"decision":"lgtm"}` to accept draft unchanged, or
+- adapter returns `{"decision":"patch","patches":[...]}` with RFC6902-style `replace` operations.
 - retries are controlled by `max_adapter_retries` (default `0` = single adapter attempt)
 
 ## OpenAI SDK Example

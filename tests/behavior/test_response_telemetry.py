@@ -44,7 +44,7 @@ def test_telemetry_schema_stage_keys_for_each_mode(base_config: AppConfig) -> No
         base_config,
         [
             UpstreamResult(content="draft", usage=usage(1, 1, 2)),
-            UpstreamResult(content="lgtm", usage=usage(2, 1, 3)),
+            UpstreamResult(content='{"decision":"lgtm"}', usage=usage(2, 1, 3)),
         ],
     )
     adapter_payload = adapter_client.post(

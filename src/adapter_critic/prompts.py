@@ -1,10 +1,47 @@
 from __future__ import annotations
 
+from typing import Any
+
 from .contracts import ChatMessage
 
 ADAPTER_SYSTEM_PROMPT = (
-    "You are a response editor. Return lgtm if draft is good, or return one or more search/replace blocks only."
+    "You are a response editor running in JSON mode. Respond with valid JSON only. "
+    'Return {"decision":"lgtm"} if the draft is good, or return '
+    '{"decision":"patch","patches":[{"op":"replace","path":"/content","value":"..."}]} '
+    "to apply RFC6902-style replace patches."
 )
+
+ADAPTER_RESPONSE_FORMAT: dict[str, Any] = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "adapter_patch_response",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "decision": {
+                    "type": "string",
+                    "enum": ["lgtm", "patch"],
+                },
+                "patches": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "op": {"type": "string", "enum": ["replace"]},
+                            "path": {"type": "string"},
+                            "value": {},
+                        },
+                        "required": ["op", "path", "value"],
+                    },
+                },
+            },
+            "required": ["decision"],
+        },
+    },
+}
 
 CRITIC_SYSTEM_PROMPT = (
     "You are a critique generator. Explain what is correct, what is wrong/missing, and exact fix instructions."

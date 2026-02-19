@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import time
-import uuid
 from typing import Any
 
 from .contracts import ChatCompletionRequest, Mode
@@ -15,11 +13,13 @@ def build_response(
     final_text: str,
     intermediate: dict[str, str],
     tokens: TokenBreakdown,
+    response_id: str,
+    created: int,
 ) -> dict[str, Any]:
     return {
-        "id": f"chatcmpl-{uuid.uuid4().hex}",
+        "id": response_id,
         "object": "chat.completion",
-        "created": int(time.time()),
+        "created": created,
         "model": request.model,
         "choices": [
             {

@@ -10,6 +10,7 @@ import uvicorn
 from .app import create_app
 from .config import AppConfig
 from .http_gateway import OpenAICompatibleHttpGateway
+from .runtime import build_runtime_state
 
 
 def _parse_args() -> argparse.Namespace:
@@ -33,7 +34,8 @@ def main() -> None:
     config = _load_config(args.config)
     api_key = os.environ.get(args.api_key_env)
     gateway = OpenAICompatibleHttpGateway(api_key=api_key, timeout_seconds=args.timeout_seconds)
-    app = create_app(config=config, gateway=gateway)
+    state = build_runtime_state(config=config, gateway=gateway)
+    app = create_app(config=config, gateway=gateway, state=state)
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
 
 

@@ -23,9 +23,14 @@ def test_response_keeps_openai_shape_and_extension() -> None:
         final_text="answer",
         intermediate={"api": "answer"},
         tokens=tokens,
+        response_id="chatcmpl-fixed",
+        created=1700000000,
     )
+    assert response["id"] == "chatcmpl-fixed"
+    assert response["created"] == 1700000000
     assert response["object"] == "chat.completion"
     assert response["choices"][0]["message"]["content"] == "answer"
     assert response["adapter_critic"]["mode"] == "direct"
     assert "intermediate" in response["adapter_critic"]
     assert "tokens" in response["adapter_critic"]
+    assert response["usage"] == response["adapter_critic"]["tokens"]["total"]

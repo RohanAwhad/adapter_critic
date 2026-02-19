@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from adapter_critic.app import create_app
 from adapter_critic.config import AppConfig
 from adapter_critic.contracts import ChatMessage
+from adapter_critic.runtime import build_runtime_state
 from adapter_critic.upstream import TokenUsage, UpstreamResult
 
 
@@ -27,9 +28,21 @@ class FakeGateway:
         return self._responses.pop(0)
 
 
-def build_client(config: AppConfig, responses: Sequence[UpstreamResult]) -> tuple[TestClient, FakeGateway]:
+def build_client(
+    config: AppConfig,
+    responses: Sequence[UpstreamResult],
+    *,
+    response_id: str = "chatcmpl-test",
+    created: int = 1700000000,
+) -> tuple[TestClient, FakeGateway]:
     gateway = FakeGateway(responses)
-    app = create_app(config=config, gateway=gateway)
+    state = build_runtime_state(
+        config=config,
+        gateway=gateway,
+        id_provider=lambda: response_id,
+        time_provider=lambda: created,
+    )
+    app = create_app(config=config, gateway=gateway, state=state)
     return TestClient(app), gateway
 
 

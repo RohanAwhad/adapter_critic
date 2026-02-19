@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 
 import uvicorn
@@ -10,6 +9,7 @@ import uvicorn
 from .app import create_app
 from .config import AppConfig
 from .http_gateway import OpenAICompatibleHttpGateway
+from .logging_setup import configure_logging
 from .runtime import build_runtime_state
 
 
@@ -30,10 +30,13 @@ def _load_config(config_path: Path) -> AppConfig:
 
 
 def main() -> None:
+    configure_logging()
     args = _parse_args()
     config = _load_config(args.config)
-    api_key = os.environ.get(args.api_key_env)
-    gateway = OpenAICompatibleHttpGateway(api_key=api_key, timeout_seconds=args.timeout_seconds)
+    gateway = OpenAICompatibleHttpGateway(
+        default_api_key_env=args.api_key_env,
+        timeout_seconds=args.timeout_seconds,
+    )
     state = build_runtime_state(config=config, gateway=gateway)
     app = create_app(config=config, gateway=gateway, state=state)
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)

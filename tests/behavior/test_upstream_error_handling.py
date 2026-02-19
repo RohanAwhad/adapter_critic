@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import logging
+from typing import Any
 
-import pytest
 from fastapi.testclient import TestClient
+from loguru import logger
 
 from adapter_critic.app import create_app
 from adapter_critic.config import AppConfig
@@ -33,24 +33,31 @@ class BrokenGateway:
 
 
 def test_upstream_format_error_returns_502_and_logs_context(
-    base_config: AppConfig, caplog: pytest.LogCaptureFixture
+    base_config: AppConfig,
 ) -> None:
-    caplog.set_level(logging.ERROR, logger="adapter_critic.app")
+    records: list[str] = []
+
+    def capture(message: Any) -> None:
+        records.append(message.record["message"])
+
+    sink_id = logger.add(capture, level="ERROR")
     client = TestClient(create_app(config=base_config, gateway=BrokenGateway()))
 
-    response = client.post(
-        "/v1/chat/completions",
-        json={"model": "served-direct", "messages": [{"role": "user", "content": "hello"}]},
-    )
+    try:
+        response = client.post(
+            "/v1/chat/completions",
+            json={"model": "served-direct", "messages": [{"role": "user", "content": "hello"}]},
+        )
+    finally:
+        logger.remove(sink_id)
 
     assert response.status_code == 502
     assert response.json() == {"detail": "upstream returned non-OpenAI response shape"}
-    messages = [record.getMessage() for record in caplog.records if record.name == "adapter_critic.app"]
     assert any(
         "model=api-model" in message
         and "base_url=https://api.example" in message
         and "message_count=1" in message
         and "status_code=200" in message
         and "reason=response missing non-empty choices" in message
-        for message in messages
+        for message in records
     )

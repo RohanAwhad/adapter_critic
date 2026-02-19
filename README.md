@@ -60,6 +60,8 @@ Endpoint:
 ## Python script setup example
 
 ```python
+import os
+import uvicorn
 from adapter_critic.app import create_app
 from adapter_critic.config import AppConfig
 from adapter_critic.http_gateway import OpenAICompatibleHttpGateway
@@ -78,9 +80,12 @@ config = AppConfig.model_validate(
     }
 )
 
-gateway = OpenAICompatibleHttpGateway(api_key="...")
+gateway = OpenAICompatibleHttpGateway(api_key=os.environ.get("OPENAI_API_KEY"))
 state = build_runtime_state(config=config, gateway=gateway)
 app = create_app(config=config, gateway=gateway, state=state)
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
 ## Request Contract

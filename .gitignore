@@ -8,3 +8,7 @@ __pycache__/
 logs/
 plans/
 devlogs.md
+.DS_Store
+config.json
+play.log
+play.py

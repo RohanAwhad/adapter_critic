@@ -8,11 +8,7 @@ FastAPI wrapper for OpenAI-compatible Chat Completions with three workflows:
 
 ## Run
 
-```bash
-uv run uvicorn adapter_critic.app:app --reload
-```
-
-If running from code, build the app with startup routing config:
+Build the app from code with startup routing config and your upstream gateway implementation:
 
 ```python
 from adapter_critic.app import create_app

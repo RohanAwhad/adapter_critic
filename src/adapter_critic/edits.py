@@ -9,15 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ADAPTER_DRAFT_PAYLOAD_RE = re.compile(
     r"\A<ADAPTER_DRAFT_CONTENT>\n(?P<content>.*?)\n</ADAPTER_DRAFT_CONTENT>\n"
-    r"<ADAPTER_DRAFT_TOOL_CALLS>\n(?P<tool_calls>.*?)\n</ADAPTER_DRAFT_TOOL_CALLS>\n"
-    r"<ADAPTER_DRAFT_FUNCTION_CALL>\n(?P<function_call>.*?)\n</ADAPTER_DRAFT_FUNCTION_CALL>\Z",
+    r"<ADAPTER_DRAFT_TOOL_CALLS>\n(?P<tool_calls>.*?)\n</ADAPTER_DRAFT_TOOL_CALLS>\Z",
     flags=re.DOTALL,
 )
 
-ALLOWED_PATCH_PATH_RE = re.compile(
-    r"^/(content|tool_calls|function_call|function_call/(name|arguments)|"
-    r"tool_calls/[0-9]+/function/(name|arguments))$"
-)
+ALLOWED_PATCH_PATH_RE = re.compile(r"^/(content|tool_calls|tool_calls/[0-9]+/function/(name|arguments))$")
 
 
 class AdapterPatch(BaseModel):
@@ -107,9 +103,7 @@ def _apply_replace_patch(document: dict[str, Any], patch: AdapterPatch) -> None:
     target[key] = patch.value
 
 
-def _coerce_patched_draft(
-    payload: dict[str, Any],
-) -> tuple[str, list[dict[str, Any]] | None, dict[str, Any] | None]:
+def _coerce_patched_draft(payload: dict[str, Any]) -> tuple[str, list[dict[str, Any]] | None]:
     content_value = payload.get("content")
     if not isinstance(content_value, str):
         raise ValueError("adapter draft content must be a string")
@@ -122,25 +116,16 @@ def _coerce_patched_draft(
     else:
         raise ValueError("adapter draft tool_calls must be a list of objects or null")
 
-    function_call_value = payload.get("function_call")
-    if function_call_value is None:
-        function_call: dict[str, Any] | None = None
-    elif isinstance(function_call_value, dict):
-        function_call = cast(dict[str, Any], function_call_value)
-    else:
-        raise ValueError("adapter draft function_call must be an object or null")
-
     if tool_calls is not None and len(tool_calls) == 0:
         tool_calls = None
 
-    return content_value, tool_calls, function_call
+    return content_value, tool_calls
 
 
 def apply_adapter_output(draft: str, adapter_output: str) -> str:
-    updated_draft, _, _ = apply_adapter_output_to_draft(
+    updated_draft, _ = apply_adapter_output_to_draft(
         content=draft,
         tool_calls=None,
-        function_call=None,
         adapter_output=adapter_output,
     )
     return updated_draft
@@ -149,24 +134,19 @@ def apply_adapter_output(draft: str, adapter_output: str) -> str:
 def build_adapter_draft_payload(
     content: str,
     tool_calls: list[dict[str, Any]] | None,
-    function_call: dict[str, Any] | None,
 ) -> str:
     tool_calls_json = json.dumps(tool_calls or [], indent=2, sort_keys=True)
-    function_call_json = json.dumps(function_call, indent=2, sort_keys=True)
     return (
         "<ADAPTER_DRAFT_CONTENT>\n"
         f"{content}\n"
         "</ADAPTER_DRAFT_CONTENT>\n"
         "<ADAPTER_DRAFT_TOOL_CALLS>\n"
         f"{tool_calls_json}\n"
-        "</ADAPTER_DRAFT_TOOL_CALLS>\n"
-        "<ADAPTER_DRAFT_FUNCTION_CALL>\n"
-        f"{function_call_json}\n"
-        "</ADAPTER_DRAFT_FUNCTION_CALL>"
+        "</ADAPTER_DRAFT_TOOL_CALLS>"
     )
 
 
-def parse_adapter_draft_payload(payload: str) -> tuple[str, list[dict[str, Any]] | None, dict[str, Any] | None]:
+def parse_adapter_draft_payload(payload: str) -> tuple[str, list[dict[str, Any]] | None]:
     match = ADAPTER_DRAFT_PAYLOAD_RE.fullmatch(payload)
     if match is None:
         raise ValueError("malformed adapter draft payload")
@@ -177,29 +157,22 @@ def parse_adapter_draft_payload(payload: str) -> tuple[str, list[dict[str, Any]]
     if not isinstance(tool_calls_value, list) or any(not isinstance(item, dict) for item in tool_calls_value):
         raise ValueError("adapter draft tool_calls must be a list of objects")
 
-    function_call_value = json.loads(match.group("function_call"))
-    if function_call_value is not None and not isinstance(function_call_value, dict):
-        raise ValueError("adapter draft function_call must be an object")
-
     tool_calls = cast(list[dict[str, Any]], tool_calls_value)
-    function_call = cast(dict[str, Any] | None, function_call_value)
-    return content, (tool_calls if len(tool_calls) > 0 else None), function_call
+    return content, (tool_calls if len(tool_calls) > 0 else None)
 
 
 def apply_adapter_output_to_draft(
     content: str,
     tool_calls: list[dict[str, Any]] | None,
-    function_call: dict[str, Any] | None,
     adapter_output: str,
-) -> tuple[str, list[dict[str, Any]] | None, dict[str, Any] | None]:
+) -> tuple[str, list[dict[str, Any]] | None]:
     structured_output = _parse_adapter_output(adapter_output)
     if structured_output.decision == "lgtm":
-        return content, tool_calls, function_call
+        return content, tool_calls
 
     patched_payload: dict[str, Any] = {
         "content": content,
         "tool_calls": deepcopy(tool_calls),
-        "function_call": deepcopy(function_call),
     }
     for patch in structured_output.patches:
         _apply_replace_patch(patched_payload, patch)

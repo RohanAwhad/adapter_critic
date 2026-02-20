@@ -17,7 +17,6 @@ class UpstreamResult(BaseModel):
     content: str
     usage: TokenUsage
     tool_calls: list[dict[str, Any]] | None = None
-    function_call: dict[str, Any] | None = None
     finish_reason: str = "stop"
 
 

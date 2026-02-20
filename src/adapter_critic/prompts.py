@@ -9,7 +9,7 @@ ADAPTER_SYSTEM_PROMPT = (
     "You are a response editor running in JSON mode. Respond with valid JSON only. "
     'Return {"decision":"lgtm"} if the draft is good, or return '
     '{"decision":"patch","patches":[{"op":"replace","path":"/content","value":"..."}]} '
-    "to apply RFC6902-style replace patches. Never emit tool calls or function_call in your own output."
+    "to apply RFC6902-style replace patches. Never emit tool calls in your own output."
 )
 
 ADAPTER_RESPONSE_FORMAT: dict[str, Any] = {
@@ -68,10 +68,6 @@ def _render_tool_contract(request_options: dict[str, Any] | None) -> str | None:
     tool_choice = request_options.get("tool_choice")
     if tool_choice is not None:
         contract["tool_choice"] = tool_choice
-
-    function_call = request_options.get("function_call")
-    if function_call is not None:
-        contract["function_call"] = function_call
 
     if len(contract) == 0:
         return None

@@ -166,21 +166,6 @@ class OpenAICompatibleHttpGateway:
                 response_body=data,
             )
 
-        function_call_value = message.get("function_call")
-        if function_call_value is None:
-            function_call: dict[str, Any] | None = None
-        elif isinstance(function_call_value, dict):
-            function_call = function_call_value
-        else:
-            raise UpstreamResponseFormatError(
-                reason="choices[0].message.function_call is not an object",
-                model=model,
-                base_url=base_url,
-                message_count=len(messages),
-                status_code=response.status_code,
-                response_body=data,
-            )
-
         raw_usage = data.get("usage", {})
         usage = raw_usage if isinstance(raw_usage, dict) else {}
         content_value = message.get("content")
@@ -193,7 +178,7 @@ class OpenAICompatibleHttpGateway:
         else:
             content = ""
 
-        if content == "" and tool_calls is None and function_call is None:
+        if content == "" and tool_calls is None:
             raise UpstreamResponseFormatError(
                 reason="assistant message has empty content and no tool calls",
                 model=model,
@@ -214,6 +199,5 @@ class OpenAICompatibleHttpGateway:
                 total_tokens=int(usage.get("total_tokens", 0)),
             ),
             tool_calls=tool_calls,
-            function_call=function_call,
             finish_reason=finish_reason,
         )

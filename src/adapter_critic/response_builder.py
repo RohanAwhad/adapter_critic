@@ -17,22 +17,17 @@ def build_response(
     response_id: str,
     created: int,
     final_tool_calls: list[dict[str, Any]] | None = None,
-    final_function_call: dict[str, Any] | None = None,
     finish_reason: str = "stop",
 ) -> dict[str, Any]:
     normalized_tool_calls = normalize_tool_calls(final_tool_calls)
-    response_function_call = final_function_call if normalized_tool_calls is None else None
     response_finish_reason = infer_finish_reason(
         finish_reason,
         tool_calls=normalized_tool_calls,
-        function_call=response_function_call,
     )
 
     message: dict[str, Any] = {"role": "assistant", "content": final_text}
     if normalized_tool_calls is not None:
         message["tool_calls"] = normalized_tool_calls
-    if response_function_call is not None:
-        message["function_call"] = response_function_call
 
     return {
         "id": response_id,

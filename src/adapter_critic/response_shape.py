@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 
@@ -7,6 +8,14 @@ def normalize_tool_calls(tool_calls: list[dict[str, Any]] | None) -> list[dict[s
     if tool_calls is None or len(tool_calls) == 0:
         return None
     return tool_calls
+
+
+def _is_json_object_string(value: str) -> bool:
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        return False
+    return isinstance(parsed, dict)
 
 
 def has_valid_tool_calls(tool_calls: list[dict[str, Any]] | None) -> bool:
@@ -24,7 +33,10 @@ def has_valid_tool_calls(tool_calls: list[dict[str, Any]] | None) -> bool:
             return False
         if not isinstance(function.get("name"), str):
             return False
-        if not isinstance(function.get("arguments"), str):
+        arguments = function.get("arguments")
+        if not isinstance(arguments, str):
+            return False
+        if not _is_json_object_string(arguments):
             return False
 
     return True
@@ -33,7 +45,9 @@ def has_valid_tool_calls(tool_calls: list[dict[str, Any]] | None) -> bool:
 def has_valid_function_call(function_call: dict[str, Any] | None) -> bool:
     if function_call is None:
         return True
-    return isinstance(function_call.get("name"), str) and isinstance(function_call.get("arguments"), str)
+    name = function_call.get("name")
+    arguments = function_call.get("arguments")
+    return isinstance(name, str) and isinstance(arguments, str) and _is_json_object_string(arguments)
 
 
 def infer_finish_reason(

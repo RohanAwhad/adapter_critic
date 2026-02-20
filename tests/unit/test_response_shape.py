@@ -38,6 +38,45 @@ def test_has_valid_tool_calls_requires_openai_function_fields() -> None:
     )
 
 
+def test_has_valid_tool_calls_requires_arguments_json_object() -> None:
+    assert has_valid_tool_calls(
+        [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {
+                    "name": "cancel_reservation",
+                    "arguments": '{"reservation_id":"EHGLP3"}',
+                },
+            }
+        ]
+    )
+    assert not has_valid_tool_calls(
+        [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {
+                    "name": "cancel_reservation",
+                    "arguments": '"{}"',
+                },
+            }
+        ]
+    )
+    assert not has_valid_tool_calls(
+        [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {
+                    "name": "cancel_reservation",
+                    "arguments": "{bad",
+                },
+            }
+        ]
+    )
+
+
 def test_has_valid_function_call_requires_name_and_arguments_strings() -> None:
     assert has_valid_function_call({"name": "cancel_reservation", "arguments": '{"reservation_id":"EHGLP3"}'})
     assert not has_valid_function_call({"name": "cancel_reservation", "arguments": None})

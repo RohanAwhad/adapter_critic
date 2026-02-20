@@ -68,3 +68,55 @@ def test_telemetry_schema_stage_keys_for_each_mode(base_config: AppConfig) -> No
     ).json()
     assert set(critic_payload["adapter_critic"]["intermediate"].keys()) == {"api_draft", "critic", "final"}
     assert set(critic_payload["adapter_critic"]["tokens"]["stages"].keys()) == {"api_draft", "critic", "api_final"}
+
+
+def test_adapter_telemetry_includes_rejection_reason_when_patch_rejected(base_config: AppConfig) -> None:
+    adapter_client, _adapter_gateway = build_client(
+        base_config,
+        [
+            UpstreamResult(
+                content="",
+                usage=usage(1, 1, 2),
+                tool_calls=[
+                    {
+                        "id": "call_cancel",
+                        "type": "function",
+                        "function": {
+                            "name": "cancel_reservation",
+                            "arguments": '{"reservation_id":"EHGLP3"}',
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            ),
+            UpstreamResult(
+                content=(
+                    '{"decision":"patch","patches":['
+                    '{"op":"replace","path":"/tool_calls/0/function/arguments","value":"\\"{}\\""}'
+                    "]}"
+                ),
+                usage=usage(1, 1, 2),
+            ),
+        ],
+    )
+    adapter_payload = adapter_client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "served-adapter",
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"reservation_id": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+        },
+    ).json()
+    assert "adapter_rejection_reason" in adapter_payload["adapter_critic"]["intermediate"]

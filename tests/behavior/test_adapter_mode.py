@@ -273,3 +273,123 @@ def test_adapter_mode_default_no_retry_on_invalid_adapter_output(base_config: Ap
     assert payload["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "cancel_reservation"
     assert payload["adapter_critic"]["tokens"]["stages"]["adapter"]["total_tokens"] == 2
     assert [call["model"] for call in gateway.calls] == ["api-model", "adapter-model"]
+
+
+def test_adapter_mode_falls_back_when_adapter_double_encodes_tool_arguments(base_config: AppConfig) -> None:
+    client, gateway = build_client(
+        base_config,
+        [
+            UpstreamResult(
+                content="",
+                usage=usage(2, 2, 4),
+                tool_calls=[
+                    {
+                        "id": "call_cancel",
+                        "type": "function",
+                        "function": {
+                            "name": "cancel_reservation",
+                            "arguments": '{"reservation_id":"EHGLP3"}',
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            ),
+            UpstreamResult(
+                content=(
+                    '{"decision":"patch","patches":['
+                    '{"op":"replace","path":"/tool_calls/0/function/arguments","value":"\\"{}\\""}'
+                    "]}"
+                ),
+                usage=usage(1, 1, 2),
+            ),
+        ],
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "served-adapter",
+            "messages": [{"role": "user", "content": "cancel reservation EHGLP3"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"reservation_id": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+        },
+    )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["choices"][0]["finish_reason"] == "tool_calls"
+    assert payload["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] == '{"reservation_id":"EHGLP3"}'
+    assert "adapter_rejection_reason" in payload["adapter_critic"]["intermediate"]
+    assert "arguments" in payload["adapter_critic"]["intermediate"]["adapter_rejection_reason"]
+    assert [call["model"] for call in gateway.calls] == ["api-model", "adapter-model"]
+
+
+def test_adapter_mode_falls_back_when_adapter_sets_invalid_tool_arguments_json(base_config: AppConfig) -> None:
+    client, gateway = build_client(
+        base_config,
+        [
+            UpstreamResult(
+                content="",
+                usage=usage(2, 2, 4),
+                tool_calls=[
+                    {
+                        "id": "call_cancel",
+                        "type": "function",
+                        "function": {
+                            "name": "cancel_reservation",
+                            "arguments": '{"reservation_id":"EHGLP3"}',
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            ),
+            UpstreamResult(
+                content=(
+                    '{"decision":"patch","patches":['
+                    '{"op":"replace","path":"/tool_calls/0/function/arguments","value":"{bad"}'
+                    "]}"
+                ),
+                usage=usage(1, 1, 2),
+            ),
+        ],
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "served-adapter",
+            "messages": [{"role": "user", "content": "cancel reservation EHGLP3"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"reservation_id": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+        },
+    )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["choices"][0]["finish_reason"] == "tool_calls"
+    assert payload["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] == '{"reservation_id":"EHGLP3"}'
+    assert "adapter_rejection_reason" in payload["adapter_critic"]["intermediate"]
+    assert "arguments" in payload["adapter_critic"]["intermediate"]["adapter_rejection_reason"]
+    assert [call["model"] for call in gateway.calls] == ["api-model", "adapter-model"]

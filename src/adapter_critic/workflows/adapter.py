@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from typing import Any
 
@@ -170,6 +171,10 @@ async def run_adapter(
         "adapter": adapter_output,
         "final": final_text,
     }
+    if api_tool_calls is not None:
+        intermediate["api_draft_tool_calls"] = json.dumps(api_tool_calls, sort_keys=True)
+    if api_function_call is not None:
+        intermediate["api_draft_function_call"] = json.dumps(api_function_call, sort_keys=True)
     if not accepted_candidate and adapter_rejection_reason is not None:
         intermediate["adapter_rejection_reason"] = adapter_rejection_reason
 

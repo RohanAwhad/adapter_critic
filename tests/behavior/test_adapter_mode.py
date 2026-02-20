@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from adapter_critic.config import AppConfig
 from adapter_critic.upstream import UpstreamResult
 from tests.helpers import build_client, usage
@@ -221,6 +223,59 @@ def test_adapter_mode_falls_back_when_tool_choice_required_and_adapter_drops_cal
     assert payload["choices"][0]["message"]["content"] == ""
     assert payload["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "cancel_reservation"
     assert [call["model"] for call in gateway.calls] == ["api-model", "adapter-model", "adapter-model"]
+
+
+def test_adapter_mode_exposes_api_draft_tool_calls_in_intermediate(base_config: AppConfig) -> None:
+    client, _gateway = build_client(
+        base_config,
+        [
+            UpstreamResult(
+                content="",
+                usage=usage(2, 2, 4),
+                tool_calls=[
+                    {
+                        "id": "call_weather",
+                        "type": "function",
+                        "function": {
+                            "name": "hyperdimensional_laser_mango_telemetry_v42",
+                            "arguments": '{"city":"Paris","units":"celsius"}',
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            ),
+            UpstreamResult(content='{"decision":"lgtm"}', usage=usage(1, 1, 2)),
+        ],
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "served-adapter",
+            "messages": [{"role": "user", "content": "what is the weather in paris"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "hyperdimensional_laser_mango_telemetry_v42",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "city": {"type": "string"},
+                                "units": {"type": "string"},
+                            },
+                        },
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+        },
+    )
+
+    payload = response.json()
+    assert response.status_code == 200
+    tool_calls = json.loads(payload["adapter_critic"]["intermediate"]["api_draft_tool_calls"])
+    assert tool_calls[0]["function"]["name"] == "hyperdimensional_laser_mango_telemetry_v42"
 
 
 def test_adapter_mode_default_no_retry_on_invalid_adapter_output(base_config: AppConfig) -> None:

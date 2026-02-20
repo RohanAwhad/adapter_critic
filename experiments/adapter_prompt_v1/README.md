@@ -1,18 +1,122 @@
-## Adapter Prompt V1
+# Adapter Prompt V1 Play Server
 
-Built after reviewing prior adapter/refiner prompt attempts in:
+## What this experiment is
 
-- `../api_adapter/new_api.py` (`REFINER_SYS_PROMPT`)
-- `../api_adapter_v2026/main.py` (`MODEL2_SYSTEM_PROMPT`)
-- `../api_adapter_revamped/llms.py` (`SURGICAL_ADAPTER_SYSTEM_PROMPT`)
-- `../api_adapter/api.py` (`REFINER_SYS_PROMPT`)
+`experiments/adapter_prompt_v1/` is a local playground for running `adapter_critic` with a file-based adapter system prompt.
 
-This version keeps the strongest shared ideas and matches `adapter_critic` runtime behavior:
+It is useful when you want to:
+- iterate on adapter prompt text quickly
+- run real chat requests through `served-adapter`
+- inspect `adapter_critic.intermediate` fields and token usage
 
-- strict output contract (`lgtm` or SEARCH/REPLACE blocks only)
-- surgical edits instead of full rewrites
-- preservation-first policy
-- focus on latest user turn while using history for context
-- exact-match replacement semantics compatible with `src/adapter_critic/edits.py`
+## Files in this folder
 
-Prompt text is in `adapter_system_prompt.txt`.
+- `adapter_system_prompt.txt`: adapter prompt used by this experiment
+- `run_server.py`: starts FastAPI app with local model routing and this prompt
+- `README.md`: this doc
+
+## Runtime wiring used by `run_server.py`
+
+- server binds to `0.0.0.0:8000`
+- `served-direct` -> API model at `http://localhost:8101/v1` (`gpt-oss-120b`)
+- `served-adapter` ->
+  - API draft model at `http://localhost:8101/v1` (`gpt-oss-120b`)
+  - adapter model at `http://localhost:8100/v1` (`gpt-oss-20b`)
+- `served-critic` -> API on `8101`, critic on `8100`
+
+The adapter stage is configured to return structured JSON patches.
+
+## Prerequisites
+
+1. `uv` environment is ready in repo root.
+2. OpenAI-compatible upstreams are running on:
+   - `127.0.0.1:8100`
+   - `127.0.0.1:8101`
+
+Quick check:
+
+```bash
+curl -sS http://127.0.0.1:8100/v1/models
+curl -sS http://127.0.0.1:8101/v1/models
+```
+
+## Start the play server
+
+From repo root:
+
+```bash
+uv run experiments/adapter_prompt_v1/run_server.py
+```
+
+Server endpoint:
+
+- `POST http://127.0.0.1:8000/v1/chat/completions`
+
+## Example request (plain text)
+
+```bash
+curl -sS http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "served-adapter",
+    "messages": [{"role": "user", "content": "Write one sentence about Paris."}]
+  }'
+```
+
+## Example request (tool calling)
+
+```bash
+curl -sS http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "served-adapter",
+    "messages": [{"role": "user", "content": "Get weather for Paris in celsius."}],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {"type": "string"},
+              "units": {"type": "string"}
+            },
+            "required": ["city", "units"]
+          }
+        }
+      }
+    ],
+    "tool_choice": "auto"
+  }'
+```
+
+## What to inspect in response
+
+Look at:
+
+- `choices[0].message`
+- `choices[0].finish_reason`
+- `adapter_critic.intermediate`
+- `adapter_critic.tokens`
+
+In adapter mode, `adapter_critic.intermediate` includes:
+
+- `api_draft`: API draft text content
+- `api_draft_tool_calls`: JSON string of API draft tool calls (when present)
+- `api_draft_function_call`: JSON string of API draft function call (when present)
+- `adapter`: raw adapter model structured response
+- `final`: final text returned after adapter processing
+- `adapter_rejection_reason`: present when adapter candidate is rejected
+
+## Logs
+
+- app log file: `logs/adapter_critic.log`
+- default logging level in this experiment: `DEBUG`
+
+If debugging a request, check the latest incoming/outgoing request lines in `logs/adapter_critic.log`.
+
+## Stop server
+
+- if running in foreground: `Ctrl+C`
+- if running in tmux: stop/kill that window or send `Ctrl+C` in-pane

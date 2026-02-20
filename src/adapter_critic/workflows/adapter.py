@@ -106,6 +106,7 @@ async def run_adapter(
         messages=messages,
         draft=draft_payload,
         adapter_system_prompt=runtime.adapter_system_prompt,
+        request_options=request_options,
     )
     adapter_usage = TokenUsage()
     adapter_output = ""

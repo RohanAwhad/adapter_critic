@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .contracts import ChatMessage
@@ -8,7 +9,7 @@ ADAPTER_SYSTEM_PROMPT = (
     "You are a response editor running in JSON mode. Respond with valid JSON only. "
     'Return {"decision":"lgtm"} if the draft is good, or return '
     '{"decision":"patch","patches":[{"op":"replace","path":"/content","value":"..."}]} '
-    "to apply RFC6902-style replace patches."
+    "to apply RFC6902-style replace patches. Never emit tool calls or function_call in your own output."
 )
 
 ADAPTER_RESPONSE_FORMAT: dict[str, Any] = {
@@ -55,11 +56,46 @@ def _render_history(messages: list[ChatMessage]) -> str:
     return "\n".join(rendered)
 
 
+def _render_tool_contract(request_options: dict[str, Any] | None) -> str | None:
+    if request_options is None:
+        return None
+
+    contract: dict[str, Any] = {}
+    tools = request_options.get("tools")
+    if isinstance(tools, list) and len(tools) > 0:
+        contract["tools"] = tools
+
+    tool_choice = request_options.get("tool_choice")
+    if tool_choice is not None:
+        contract["tool_choice"] = tool_choice
+
+    function_call = request_options.get("function_call")
+    if function_call is not None:
+        contract["function_call"] = function_call
+
+    if len(contract) == 0:
+        return None
+    return json.dumps(contract, indent=2, sort_keys=True, default=str)
+
+
 def build_adapter_messages(
-    messages: list[ChatMessage], draft: str, adapter_system_prompt: str = ADAPTER_SYSTEM_PROMPT
+    messages: list[ChatMessage],
+    draft: str,
+    adapter_system_prompt: str = ADAPTER_SYSTEM_PROMPT,
+    request_options: dict[str, Any] | None = None,
 ) -> list[ChatMessage]:
+    tool_contract = _render_tool_contract(request_options)
+    system_prompt_content = adapter_system_prompt
+    if tool_contract is not None:
+        system_prompt_content = (
+            f"{adapter_system_prompt}\n\n"
+            "Authoritative tool contract for this request:\n"
+            f"{tool_contract}\n\n"
+            "Never emit tool calls directly. Return only the structured JSON adapter response."
+        )
+
     return [
-        ChatMessage(role="system", content=adapter_system_prompt),
+        ChatMessage(role="system", content=system_prompt_content),
         ChatMessage(
             role="user",
             content=(f"Conversation history:\n{_render_history(messages)}\n\nLatest API draft:\n{draft}"),

@@ -175,11 +175,18 @@ def test_served_adapter_can_edit_tool_calls_end_to_end(base_config: AppConfig) -
     adapter_request_options = gateway.calls[1]["request_options"]
     assert adapter_request_options is not None
     assert adapter_request_options["response_format"]["type"] == "json_schema"
+    assert "tool_choice" not in adapter_request_options
 
     adapter_prompt_content = gateway.calls[1]["messages"][1].content
     assert adapter_prompt_content is not None
     assert "<ADAPTER_DRAFT_TOOL_CALLS>" in adapter_prompt_content
     assert "cancel_reservation" in adapter_prompt_content
+
+    adapter_system_content = gateway.calls[1]["messages"][0].content
+    assert adapter_system_content is not None
+    assert "Authoritative tool contract for this request" in adapter_system_content
+    assert '"name": "cancel_reservation"' in adapter_system_content
+    assert '"tool_choice": "auto"' in adapter_system_content
 
 
 def test_served_critic_forwards_tool_options_and_returns_tool_calls(base_config: AppConfig) -> None:

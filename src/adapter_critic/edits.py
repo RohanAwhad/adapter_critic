@@ -16,7 +16,7 @@ ADAPTER_DRAFT_PAYLOAD_RE = re.compile(
 
 ALLOWED_PATCH_PATH_RE = re.compile(
     r"^/(content|tool_calls|function_call|function_call/(name|arguments)|"
-    r"tool_calls/[0-9]+/(id|type|function/(name|arguments)))$"
+    r"tool_calls/[0-9]+/function/(name|arguments))$"
 )
 
 

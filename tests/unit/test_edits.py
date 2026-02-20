@@ -61,6 +61,48 @@ def test_disallowed_patch_path_raises_error() -> None:
         )
 
 
+def test_tool_call_id_path_is_disallowed() -> None:
+    with pytest.raises(ValueError, match="unsupported patch path"):
+        apply_adapter_output_to_draft(
+            content="",
+            tool_calls=[
+                {
+                    "id": "call_cancel",
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "arguments": '{"reservation_id":"WRONG"}',
+                    },
+                }
+            ],
+            function_call=None,
+            adapter_output=(
+                '{"decision":"patch","patches":[{"op":"replace","path":"/tool_calls/0/id","value":"call_new"}]}'
+            ),
+        )
+
+
+def test_tool_call_type_path_is_disallowed() -> None:
+    with pytest.raises(ValueError, match="unsupported patch path"):
+        apply_adapter_output_to_draft(
+            content="",
+            tool_calls=[
+                {
+                    "id": "call_cancel",
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "arguments": '{"reservation_id":"WRONG"}',
+                    },
+                }
+            ],
+            function_call=None,
+            adapter_output=(
+                '{"decision":"patch","patches":[{"op":"replace","path":"/tool_calls/0/type","value":"non_function"}]}'
+            ),
+        )
+
+
 def test_out_of_range_tool_call_index_raises_error() -> None:
     with pytest.raises(ValueError, match="path not found"):
         apply_adapter_output_to_draft(

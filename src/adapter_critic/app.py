@@ -4,12 +4,14 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from loguru import logger
 from starlette.types import Message
 
 from .config import AppConfig, resolve_runtime_config
 from .contracts import parse_request_payload
 from .dispatcher import dispatch
+from .health import run_healthcheck
 from .http_gateway import UpstreamResponseFormatError
 from .logging_setup import is_debug_logging_enabled
 from .response_builder import build_response
@@ -122,5 +124,11 @@ def create_app(
             final_function_call=workflow_output.final_function_call,
             finish_reason=workflow_output.finish_reason,
         )
+
+    @app.get("/healthz")
+    async def healthz() -> Response:
+        payload = await run_healthcheck(runtime_state.config)
+        status_code = 200 if payload["status"] == "ok" else 503
+        return JSONResponse(status_code=status_code, content=payload)
 
     return app

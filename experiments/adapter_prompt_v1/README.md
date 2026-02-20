@@ -13,15 +13,18 @@ It is useful when you want to:
 
 - `adapter_system_prompt.txt`: adapter prompt used by this experiment
 - `run_server.py`: starts FastAPI app with local model routing and this prompt
+- `upstream_resolution.py`: `UPSTREAM_HOST` resolution and validation helpers
 - `README.md`: this doc
 
 ## Runtime wiring used by `run_server.py`
 
 - server binds to `0.0.0.0:8000`
-- `served-direct` -> API model at `http://localhost:8101/v1` (`gpt-oss-120b`)
+- upstream host comes from `UPSTREAM_HOST` (defaults to `localhost`)
+- `UPSTREAM_HOST` must be a bare host value (no scheme/path/query/fragment/port)
+- `served-direct` -> API model at `http://<upstream-host>:8101/v1` (`gpt-oss-120b`)
 - `served-adapter` ->
-  - API draft model at `http://localhost:8101/v1` (`gpt-oss-120b`)
-  - adapter model at `http://localhost:8100/v1` (`gpt-oss-20b`)
+  - API draft model at `http://<upstream-host>:8101/v1` (`gpt-oss-120b`)
+  - adapter model at `http://<upstream-host>:8100/v1` (`gpt-oss-20b`)
 - `served-critic` -> API on `8101`, critic on `8100`
 
 The adapter stage is configured to return structured JSON patches.
@@ -29,20 +32,25 @@ The adapter stage is configured to return structured JSON patches.
 ## Prerequisites
 
 1. `uv` environment is ready in repo root.
-2. OpenAI-compatible upstreams are running on:
-   - `127.0.0.1:8100`
-   - `127.0.0.1:8101`
+2. OpenAI-compatible upstreams are running on the selected upstream host on ports `8100` and `8101`.
 
 Quick check:
 
 ```bash
-curl -sS http://127.0.0.1:8100/v1/models
-curl -sS http://127.0.0.1:8101/v1/models
+UPSTREAM_HOST=${UPSTREAM_HOST:-localhost}
+curl -sS "http://${UPSTREAM_HOST}:8100/v1/models"
+curl -sS "http://${UPSTREAM_HOST}:8101/v1/models"
 ```
 
 ## Start the play server
 
 From repo root:
+
+```bash
+UPSTREAM_HOST=host.docker.internal uv run experiments/adapter_prompt_v1/run_server.py
+```
+
+Or default to localhost:
 
 ```bash
 uv run experiments/adapter_prompt_v1/run_server.py

@@ -110,10 +110,7 @@ async def run_adapter(
     )
     adapter_usage = TokenUsage()
     adapter_output = ""
-    adapter_request_options = {
-        "response_format": deepcopy(ADAPTER_RESPONSE_FORMAT),
-        "tool_choice": "none",
-    }
+    adapter_request_options = {"response_format": deepcopy(ADAPTER_RESPONSE_FORMAT)}
     adapter_rejection_reason: str | None = None
 
     final_text = api_draft.content

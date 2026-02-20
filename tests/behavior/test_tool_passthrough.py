@@ -175,7 +175,7 @@ def test_served_adapter_can_edit_tool_calls_end_to_end(base_config: AppConfig) -
     adapter_request_options = gateway.calls[1]["request_options"]
     assert adapter_request_options is not None
     assert adapter_request_options["response_format"]["type"] == "json_schema"
-    assert adapter_request_options["tool_choice"] == "none"
+    assert "tool_choice" not in adapter_request_options
 
     adapter_prompt_content = gateway.calls[1]["messages"][1].content
     assert adapter_prompt_content is not None

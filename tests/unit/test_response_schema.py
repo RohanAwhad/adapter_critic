@@ -97,4 +97,3 @@ def test_response_normalizes_empty_tool_calls_to_stop() -> None:
     choice = response["choices"][0]
     assert choice["finish_reason"] == "stop"
     assert "tool_calls" not in choice["message"]
-

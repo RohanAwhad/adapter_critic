@@ -1,18 +1,19 @@
-# Adapter Prompt V1 Play Server
+# V1 Experiment Server
 
 ## What this experiment is
 
-`experiments/adapter_prompt_v1/` is a local playground for running `adapter_critic` with a file-based adapter system prompt.
+`experiments/v1/` is a local playground for running `adapter_critic` with file-based adapter and critic system prompts.
 
 It is useful when you want to:
-- iterate on adapter prompt text quickly
-- run real chat requests through `served-adapter`
+- iterate on adapter or critic prompt text quickly
+- run real chat requests through `served-adapter` or `served-critic`
 - inspect `adapter_critic.intermediate` fields and token usage
 
 ## Files in this folder
 
 - `adapter_system_prompt.txt`: adapter prompt used by this experiment
-- `run_server.py`: starts FastAPI app with local model routing and this prompt
+- `critic_system_prompt.txt`: critic prompt used by this experiment
+- `run_server.py`: starts FastAPI app with local model routing and both prompts
 - `upstream_resolution.py`: `UPSTREAM_HOST` resolution and validation helpers
 - `README.md`: this doc
 
@@ -25,9 +26,12 @@ It is useful when you want to:
 - `served-adapter` ->
   - API draft model at `http://<upstream-host>:8101/v1` (`gpt-oss-120b`)
   - adapter model at `http://<upstream-host>:8100/v1` (`gpt-oss-20b`)
-- `served-critic` -> API on `8101`, critic on `8100`
+- `served-critic` ->
+  - API draft + second pass model at `http://<upstream-host>:8101/v1` (`gpt-oss-120b`)
+  - critic model at `http://<upstream-host>:8100/v1` (`gpt-oss-20b`)
 
 The adapter stage is configured to return structured JSON patches.
+The critic stage returns natural language feedback.
 
 ## Prerequisites
 
@@ -47,20 +51,20 @@ curl -sS "http://${UPSTREAM_HOST}:8101/v1/models"
 From repo root:
 
 ```bash
-UPSTREAM_HOST=host.docker.internal uv run experiments/adapter_prompt_v1/run_server.py
+UPSTREAM_HOST=host.docker.internal uv run python -m experiments.v1.run_server
 ```
 
 Or default to localhost:
 
 ```bash
-uv run experiments/adapter_prompt_v1/run_server.py
+uv run python -m experiments.v1.run_server
 ```
 
 Server endpoint:
 
 - `POST http://127.0.0.1:8000/v1/chat/completions`
 
-## Example request (plain text)
+## Example request (adapter - plain text)
 
 ```bash
 curl -sS http://127.0.0.1:8000/v1/chat/completions \
@@ -71,7 +75,7 @@ curl -sS http://127.0.0.1:8000/v1/chat/completions \
   }'
 ```
 
-## Example request (tool calling)
+## Example request (adapter - tool calling)
 
 ```bash
 curl -sS http://127.0.0.1:8000/v1/chat/completions \
@@ -99,6 +103,17 @@ curl -sS http://127.0.0.1:8000/v1/chat/completions \
   }'
 ```
 
+## Example request (critic - plain text)
+
+```bash
+curl -sS http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "served-critic",
+    "messages": [{"role": "user", "content": "Write one sentence about Paris."}]
+  }'
+```
+
 ## What to inspect in response
 
 Look at:
@@ -116,6 +131,14 @@ In adapter mode, `adapter_critic.intermediate` includes:
 - `adapter`: raw adapter model structured response
 - `final`: final text returned after adapter processing
 - `adapter_rejection_reason`: present when adapter candidate is rejected
+
+In critic mode, `adapter_critic.intermediate` includes:
+
+- `api_draft`: API draft text content
+- `api_draft_tool_calls`: JSON string of API draft tool calls (when present)
+- `api_draft_function_call`: JSON string of API draft function call (when present)
+- `critic`: critic model feedback
+- `final`: final text from second API pass
 
 ## Logs
 

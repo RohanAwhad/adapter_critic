@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from experiments.adapter_prompt_v1.upstream_resolution import (
+from experiments.v1.upstream_resolution import (
     build_upstream_base_url,
     resolve_upstream_host,
 )

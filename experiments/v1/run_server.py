@@ -9,7 +9,7 @@ from adapter_critic.config import AppConfig
 from adapter_critic.http_gateway import OpenAICompatibleHttpGateway
 from adapter_critic.logging_setup import configure_logging
 from adapter_critic.runtime import build_runtime_state
-from experiments.adapter_prompt_v1.upstream_resolution import (
+from experiments.v1.upstream_resolution import (
     build_upstream_base_url,
     resolve_upstream_host,
 )
@@ -18,6 +18,7 @@ os.environ.setdefault("LOGGING_LEVEL", "DEBUG")
 configure_logging()
 
 ADAPTER_PROMPT = Path(__file__).resolve().with_name("adapter_system_prompt.txt").read_text().strip()
+CRITIC_PROMPT = Path(__file__).resolve().with_name("critic_system_prompt.txt").read_text().strip()
 
 
 def build_experiment_config(upstream_host: str) -> AppConfig:
@@ -45,6 +46,7 @@ def build_experiment_config(upstream_host: str) -> AppConfig:
                     "mode": "critic",
                     "api": {"model": "gpt-oss-120b", "base_url": api_base_url},
                     "critic": {"model": "gpt-oss-20b", "base_url": adapter_base_url},
+                    "critic_system_prompt": CRITIC_PROMPT,
                 },
             }
         }

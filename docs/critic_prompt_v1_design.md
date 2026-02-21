@@ -37,7 +37,7 @@ Currently the critic has a minimal default prompt (`prompts.py:CRITIC_SYSTEM_PRO
 
 ## Planned Changes
 
-### 1. Critic system prompt (`experiments/critic_prompt_v1/critic_system_prompt.txt`)
+### 1. Critic system prompt (`experiments/v1/critic_system_prompt.txt`)
 
 The prompt will instruct the critic model to:
 
@@ -67,11 +67,10 @@ The prompt will instruct the critic model to:
 - Add `api_draft_tool_calls` and `api_draft_function_call` to the critic `intermediate` dict when present, same pattern as the adapter workflow (`workflows/adapter.py:174-177`). This surfaces draft tool call info in the `adapter_critic.intermediate` response payload for debugging.
 - No changes needed for the second pass — it already receives `request_options` via `gateway.complete`
 
-### 4. Experiment setup (`experiments/critic_prompt_v1/`)
+### 4. Experiment setup (`experiments/v1/`)
 
-- `critic_system_prompt.txt`: the v1 prompt file
-- `run_server.py`: experiment runner that loads the prompt and wires up served models (same pattern as `adapter_prompt_v1/run_server.py`)
-- Reuse `upstream_resolution.py` from `adapter_prompt_v1` (import, not copy)
+- `critic_system_prompt.txt`: the v1 critic prompt file (colocated with adapter prompt in same experiment dir)
+- `run_server.py`: single experiment runner that loads both adapter and critic prompts and wires up all served models
 
 ## What does NOT change
 
@@ -120,7 +119,7 @@ These verify end-to-end critic workflow behavior through the HTTP boundary using
 ### What we do NOT test
 
 - Second pass tool forwarding — already works and already tested (`gateway.calls[2]["request_options"]` assertions exist in `test_tool_passthrough.py:258-264`).
-- Prompt content quality — that's the experiment's job (`experiments/critic_prompt_v1/`), not unit/behavior tests. The experiment uses live models to validate the prompt produces useful feedback.
+- Prompt content quality — that's the experiment's job (`experiments/v1/`), not unit/behavior tests. The experiment uses live models to validate the prompt produces useful feedback.
 - Critic structured output parsing — there is none. The critic returns natural language.
 
 ## Critic Prompt Design Principles

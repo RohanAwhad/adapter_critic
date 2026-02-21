@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 import httpx
+from loguru import logger
 
 from .contracts import ChatMessage
 from .upstream import TokenUsage, UpstreamResult
@@ -89,6 +90,14 @@ class OpenAICompatibleHttpGateway:
                 if key not in {"model", "messages"}:
                     payload[key] = value
 
+        logger.debug(
+            "upstream request model={} base_url={} message_count={} messages={}",
+            model,
+            base_url,
+            len(messages),
+            _payload_preview(payload["messages"], max_chars=2000),
+        )
+
         async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
             response = await client.post(
                 f"{base_url.rstrip('/')}/chat/completions",
@@ -107,6 +116,14 @@ class OpenAICompatibleHttpGateway:
                     status_code=response.status_code,
                     response_body=response.text,
                 ) from exc
+
+        logger.debug(
+            "upstream raw response model={} base_url={} status={} message={}",
+            model,
+            base_url,
+            response.status_code,
+            _payload_preview(data, max_chars=2000),
+        )
 
         if not isinstance(data, dict):
             raise UpstreamResponseFormatError(
@@ -155,7 +172,7 @@ class OpenAICompatibleHttpGateway:
         if tool_calls_value is None:
             tool_calls: list[dict[str, Any]] | None = None
         elif isinstance(tool_calls_value, list) and all(isinstance(item, dict) for item in tool_calls_value):
-            tool_calls = tool_calls_value
+            tool_calls = tool_calls_value if len(tool_calls_value) > 0 else None
         else:
             raise UpstreamResponseFormatError(
                 reason="choices[0].message.tool_calls is not a list of objects",
@@ -187,6 +204,17 @@ class OpenAICompatibleHttpGateway:
                 status_code=response.status_code,
                 response_body=data,
             )
+
+        logger.debug(
+            "upstream parsed model={} content_len={} content_type={} "
+            "tool_calls_count={} tool_calls_raw_type={} finish_reason={}",
+            model,
+            len(content),
+            type(content_value).__name__,
+            len(tool_calls) if tool_calls is not None else "None",
+            type(tool_calls_value).__name__,
+            first_choice.get("finish_reason"),
+        )
 
         finish_reason_value = first_choice.get("finish_reason")
         finish_reason = finish_reason_value if isinstance(finish_reason_value, str) else "stop"

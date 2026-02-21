@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 from fastapi.testclient import TestClient
 from loguru import logger
 
@@ -33,6 +34,22 @@ class BrokenGateway:
         )
 
 
+class HttpFailureGateway:
+    async def complete(
+        self,
+        *,
+        model: str,
+        base_url: str,
+        messages: list[ChatMessage],
+        api_key_env: str | None = None,
+        request_options: dict[str, Any] | None = None,
+    ) -> UpstreamResult:
+        del api_key_env, request_options, model, base_url, messages
+        request = httpx.Request("POST", "https://api.example/v1/chat/completions")
+        response = httpx.Response(500, request=request, json={"error": {"message": "upstream down"}})
+        raise httpx.HTTPStatusError("500 Server Error", request=request, response=response)
+
+
 def test_upstream_format_error_returns_502_and_logs_context(
     base_config: AppConfig,
 ) -> None:
@@ -62,3 +79,14 @@ def test_upstream_format_error_returns_502_and_logs_context(
         and "reason=response missing non-empty choices" in message
         for message in records
     )
+
+
+def test_upstream_http_error_returns_502(base_config: AppConfig) -> None:
+    client = TestClient(create_app(config=base_config, gateway=HttpFailureGateway()))
+    response = client.post(
+        "/v1/chat/completions",
+        json={"model": "served-direct", "messages": [{"role": "user", "content": "hello"}]},
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "upstream request failed"}

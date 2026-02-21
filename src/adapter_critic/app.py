@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from loguru import logger
@@ -110,6 +111,17 @@ def create_app(
                 exc.payload_preview,
             )
             raise HTTPException(status_code=502, detail="upstream returned non-OpenAI response shape") from exc
+        except httpx.HTTPError as exc:
+            request_url = str(exc.request.url) if getattr(exc, "request", None) is not None else "unknown"
+            status_code = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else "None"
+            logger.error(
+                "upstream request failed request_url={} status_code={} error_type={} detail={}",
+                request_url,
+                status_code,
+                type(exc).__name__,
+                str(exc),
+            )
+            raise HTTPException(status_code=502, detail="upstream request failed") from exc
 
         tokens = aggregate_usage(workflow_output.stage_usage)
         return build_response(

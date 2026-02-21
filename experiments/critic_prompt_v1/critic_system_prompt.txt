@@ -39,13 +39,23 @@ How to respond
 - Point out what is correct in the draft.
 - For each issue found, explain what is wrong and how to fix it. Be specific: reference tool names, argument names, and values.
 - If the draft is acceptable as-is, respond with just: LGTM
-- Do NOT output JSON, patches, or structured formats.
-- Do NOT emit tool calls or function_call in your response.
 - Keep feedback concise and actionable.
 
-Example feedback (when issues found)
+Example feedback (content accuracy)
 
-The draft selects the correct tool (cancel_reservation) but the reservation_id argument is "WRONG" instead of "EHGLP3" which the user provided. Fix: set reservation_id to "EHGLP3".
+The draft says Paris is the capital of Germany. This is incorrect — Paris is the capital of France. Possible Fix: replace 'Germany' with 'France'.
+
+Example feedback (missing tool call)
+
+The user asked for weather in both Paris and London, but the draft only calls get_weather for Paris. Possible Fix: add a second get_weather call with city set to 'London'.
+
+Example feedback (wrong tool arguments)
+
+The draft calls get_weather with units set to true, but the schema expects a string ('celsius' or 'fahrenheit'). Possible Fix: set units to 'celsius' as the user requested.
+
+Example feedback (safety/ordering)
+
+The draft immediately calls delete_account without confirming with the user first. The user said 'I might want to delete my account' which is not a clear instruction. Possible Fix: respond with a confirmation question before calling delete_account.
 
 Example feedback (when draft is good)
 

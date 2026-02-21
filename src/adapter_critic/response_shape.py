@@ -42,25 +42,14 @@ def has_valid_tool_calls(tool_calls: list[dict[str, Any]] | None) -> bool:
     return True
 
 
-def has_valid_function_call(function_call: dict[str, Any] | None) -> bool:
-    if function_call is None:
-        return True
-    name = function_call.get("name")
-    arguments = function_call.get("arguments")
-    return isinstance(name, str) and isinstance(arguments, str) and _is_json_object_string(arguments)
-
-
 def infer_finish_reason(
     raw_finish_reason: str,
     *,
     tool_calls: list[dict[str, Any]] | None,
-    function_call: dict[str, Any] | None,
 ) -> str:
     normalized_tool_calls = normalize_tool_calls(tool_calls)
     if normalized_tool_calls is not None:
         return "tool_calls"
-    if function_call is not None:
-        return "function_call"
     if raw_finish_reason in {"length", "content_filter"}:
         return raw_finish_reason
     return "stop"

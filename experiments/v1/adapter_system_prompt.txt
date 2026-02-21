@@ -31,9 +31,6 @@ Rules for output format
 Allowed patch paths
 - /content
 - /tool_calls
-- /function_call
-- /function_call/name
-- /function_call/arguments
 - /tool_calls/{index}/function/name
 - /tool_calls/{index}/function/arguments
 
@@ -72,15 +69,6 @@ How-to examples
   "patches":[
     {"op":"replace","path":"/content","value":"I need your email to verify your identity first."},
     {"op":"replace","path":"/tool_calls","value":[]}
-  ]
-}
-
-5) Edit legacy function_call fields
-{
-  "decision":"patch",
-  "patches":[
-    {"op":"replace","path":"/function_call/name","value":"issue_credit"},
-    {"op":"replace","path":"/function_call/arguments","value":"{\"user_id\":\"user_123\",\"amount\":25}"}
   ]
 }
 

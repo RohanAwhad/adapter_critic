@@ -39,12 +39,10 @@ async def run_critic(
         request_options=request_options,
     )
     api_tool_calls = normalize_tool_calls(api_draft.tool_calls)
-    api_function_call = api_draft.function_call if api_tool_calls is None else None
 
     draft_payload = build_adapter_draft_payload(
         content=api_draft.content,
         tool_calls=api_tool_calls,
-        function_call=api_function_call,
     )
 
     critic_messages = build_critic_messages(
@@ -79,8 +77,6 @@ async def run_critic(
     }
     if api_tool_calls is not None:
         intermediate["api_draft_tool_calls"] = json.dumps(api_tool_calls, sort_keys=True)
-    if api_function_call is not None:
-        intermediate["api_draft_function_call"] = json.dumps(api_function_call, sort_keys=True)
 
     return WorkflowOutput(
         final_text=final_response.content,
@@ -91,6 +87,5 @@ async def run_critic(
             "api_final": final_response.usage,
         },
         final_tool_calls=final_response.tool_calls,
-        final_function_call=final_response.function_call,
         finish_reason=final_response.finish_reason,
     )

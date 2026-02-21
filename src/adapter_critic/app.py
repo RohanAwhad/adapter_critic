@@ -121,7 +121,6 @@ def create_app(
             response_id=runtime_state.id_provider(),
             created=runtime_state.time_provider(),
             final_tool_calls=workflow_output.final_tool_calls,
-            final_function_call=workflow_output.final_function_call,
             finish_reason=workflow_output.finish_reason,
         )
 

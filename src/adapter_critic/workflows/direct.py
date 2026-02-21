@@ -14,7 +14,6 @@ class WorkflowOutput(BaseModel):
     intermediate: dict[str, str]
     stage_usage: dict[str, TokenUsage]
     final_tool_calls: list[dict[str, Any]] | None = None
-    final_function_call: dict[str, Any] | None = None
     finish_reason: str = "stop"
 
 
@@ -36,6 +35,5 @@ async def run_direct(
         intermediate={"api": response.content},
         stage_usage={"api": response.usage},
         final_tool_calls=response.tool_calls,
-        final_function_call=response.function_call,
         finish_reason=response.finish_reason,
     )

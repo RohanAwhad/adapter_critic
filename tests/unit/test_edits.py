@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from adapter_critic.edits import (
-    apply_adapter_output,
-    apply_adapter_output_to_draft,
-)
+from adapter_critic.edits import apply_adapter_output, apply_adapter_output_to_draft
 
 
 def test_lgtm_returns_original_draft() -> None:
@@ -17,27 +14,6 @@ def test_single_replace_patch_updates_content() -> None:
     draft = "hello world"
     edits = '{"decision":"patch","patches":[{"op":"replace","path":"/content","value":"hello universe"}]}'
     assert apply_adapter_output(draft, edits) == "hello universe"
-
-
-def test_patch_can_update_content_and_function_call() -> None:
-    final_text, final_tool_calls, final_function_call = apply_adapter_output_to_draft(
-        content="Draft answer",
-        tool_calls=None,
-        function_call={"name": "transfer_to_human", "arguments": "{}"},
-        adapter_output=(
-            '{"decision":"patch","patches":['
-            '{"op":"replace","path":"/content","value":"Final answer"},'
-            '{"op":"replace","path":"/function_call/arguments","value":"{\\"reason\\":\\"user_requested\\"}"}'
-            "]}"
-        ),
-    )
-
-    assert final_text == "Final answer"
-    assert final_tool_calls is None
-    assert final_function_call == {
-        "name": "transfer_to_human",
-        "arguments": '{"reason":"user_requested"}',
-    }
 
 
 def test_invalid_json_raises_error() -> None:
@@ -75,10 +51,7 @@ def test_tool_call_id_path_is_disallowed() -> None:
                     },
                 }
             ],
-            function_call=None,
-            adapter_output=(
-                '{"decision":"patch","patches":[{"op":"replace","path":"/tool_calls/0/id","value":"call_new"}]}'
-            ),
+            adapter_output='{"decision":"patch","patches":[{"op":"replace","path":"/tool_calls/0/id","value":"call_new"}]}',
         )
 
 
@@ -96,10 +69,7 @@ def test_tool_call_type_path_is_disallowed() -> None:
                     },
                 }
             ],
-            function_call=None,
-            adapter_output=(
-                '{"decision":"patch","patches":[{"op":"replace","path":"/tool_calls/0/type","value":"non_function"}]}'
-            ),
+            adapter_output='{"decision":"patch","patches":[{"op":"replace","path":"/tool_calls/0/type","value":"non_function"}]}',
         )
 
 
@@ -117,7 +87,6 @@ def test_out_of_range_tool_call_index_raises_error() -> None:
                     },
                 }
             ],
-            function_call=None,
             adapter_output=(
                 '{"decision":"patch","patches":['
                 '{"op":"replace","path":"/tool_calls/2/function/arguments","value":"{\\"reservation_id\\":\\"EHGLP3\\"}"}'
@@ -127,7 +96,7 @@ def test_out_of_range_tool_call_index_raises_error() -> None:
 
 
 def test_apply_adapter_output_to_draft_can_edit_tool_call_arguments() -> None:
-    final_text, final_tool_calls, final_function_call = apply_adapter_output_to_draft(
+    final_text, final_tool_calls = apply_adapter_output_to_draft(
         content="",
         tool_calls=[
             {
@@ -139,7 +108,6 @@ def test_apply_adapter_output_to_draft_can_edit_tool_call_arguments() -> None:
                 },
             }
         ],
-        function_call=None,
         adapter_output=(
             '{"decision":"patch","patches":['
             '{"op":"replace","path":"/tool_calls/0/function/arguments","value":"{\\"reservation_id\\":\\"EHGLP3\\"}"}'
@@ -148,7 +116,6 @@ def test_apply_adapter_output_to_draft_can_edit_tool_call_arguments() -> None:
     )
 
     assert final_text == ""
-    assert final_function_call is None
     assert final_tool_calls is not None
     assert final_tool_calls[0]["function"]["arguments"] == '{"reservation_id":"EHGLP3"}'
 

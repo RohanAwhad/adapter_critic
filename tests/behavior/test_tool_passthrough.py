@@ -267,3 +267,9 @@ def test_served_critic_forwards_tool_options_and_returns_tool_calls(base_config:
     assert critic_prompt_content is not None
     assert "<ADAPTER_DRAFT_TOOL_CALLS>" in critic_prompt_content
     assert "cancel_reservation" in critic_prompt_content
+
+    critic_system_content = gateway.calls[1]["messages"][0].content
+    assert critic_system_content is not None
+    assert "Authoritative tool contract for this request" in critic_system_content
+    assert '"name": "cancel_reservation"' in critic_system_content
+    assert '"tool_choice": "auto"' in critic_system_content

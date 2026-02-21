@@ -60,3 +60,46 @@ def test_adapter_prompt_includes_tool_contract_when_tools_are_provided() -> None
     assert "Authoritative tool contract for this request" in system_content
     assert '"name": "cancel_reservation"' in system_content
     assert '"tool_choice": "auto"' in system_content
+
+
+def test_critic_prompt_includes_tool_contract_when_tools_are_provided() -> None:
+    messages = [ChatMessage(role="user", content="cancel reservation EHGLP3")]
+    prompt_messages = build_critic_messages(
+        messages=messages,
+        system_prompt="be precise",
+        draft="<ADAPTER_DRAFT_CONTENT>\n\n</ADAPTER_DRAFT_CONTENT>",
+        request_options={
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"reservation_id": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+        },
+    )
+
+    system_content = prompt_messages[0].content
+    assert system_content is not None
+    assert "Authoritative tool contract for this request" in system_content
+    assert '"name": "cancel_reservation"' in system_content
+    assert '"tool_choice": "auto"' in system_content
+
+
+def test_critic_prompt_no_tool_contract_without_tools() -> None:
+    messages = [ChatMessage(role="user", content="hello")]
+    prompt_messages = build_critic_messages(
+        messages=messages,
+        system_prompt="be helpful",
+        draft="some draft",
+    )
+
+    system_content = prompt_messages[0].content
+    assert system_content is not None
+    assert "Authoritative tool contract" not in system_content

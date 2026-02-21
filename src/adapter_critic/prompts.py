@@ -108,9 +108,20 @@ def build_critic_messages(
     system_prompt: str,
     draft: str,
     critic_system_prompt: str = CRITIC_SYSTEM_PROMPT,
+    request_options: dict[str, Any] | None = None,
 ) -> list[ChatMessage]:
+    tool_contract = _render_tool_contract(request_options)
+    system_prompt_content = critic_system_prompt
+    if tool_contract is not None:
+        system_prompt_content = (
+            f"{critic_system_prompt}\n\n"
+            "Authoritative tool contract for this request:\n"
+            f"{tool_contract}\n\n"
+            "Evaluate tool usage against this contract. Never emit tool calls yourself."
+        )
+
     return [
-        ChatMessage(role="system", content=critic_system_prompt),
+        ChatMessage(role="system", content=system_prompt_content),
         ChatMessage(
             role="user",
             content=(

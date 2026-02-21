@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from adapter_critic.config import AppConfig
 from adapter_critic.upstream import UpstreamResult
 from tests.helpers import build_client, usage
@@ -57,3 +59,60 @@ def test_critic_mode_without_system_message_uses_empty_system_fallback(base_conf
     critic_prompt_content = gateway.calls[1]["messages"][1].content
     assert critic_prompt_content is not None
     assert "System instructions:\n\n\nConversation history" in critic_prompt_content
+
+
+def test_critic_intermediate_includes_draft_tool_calls(base_config: AppConfig) -> None:
+    draft_tool_calls = [
+        {
+            "id": "call_cancel",
+            "type": "function",
+            "function": {
+                "name": "cancel_reservation",
+                "arguments": '{"reservation_id":"EHGLP3"}',
+            },
+        }
+    ]
+    client, _gateway = build_client(
+        base_config,
+        [
+            UpstreamResult(
+                content="",
+                usage=usage(3, 2, 5),
+                tool_calls=draft_tool_calls,
+                finish_reason="tool_calls",
+            ),
+            UpstreamResult(content="LGTM", usage=usage(2, 1, 3)),
+            UpstreamResult(
+                content="",
+                usage=usage(4, 2, 6),
+                tool_calls=draft_tool_calls,
+                finish_reason="tool_calls",
+            ),
+        ],
+    )
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "served-critic",
+            "messages": [{"role": "user", "content": "cancel reservation EHGLP3"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"reservation_id": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    intermediate = payload["adapter_critic"]["intermediate"]
+    assert "api_draft_tool_calls" in intermediate
+    parsed = json.loads(intermediate["api_draft_tool_calls"])
+    assert parsed[0]["function"]["name"] == "cancel_reservation"

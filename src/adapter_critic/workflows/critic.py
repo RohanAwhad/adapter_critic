@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from ..config import RuntimeConfig
 from ..contracts import ChatMessage
 from ..edits import build_adapter_draft_payload
 from ..prompts import build_critic_messages, build_critic_second_pass_messages
+from ..response_shape import normalize_tool_calls
 from ..upstream import UpstreamGateway
 from .direct import WorkflowOutput
 
@@ -36,10 +38,13 @@ async def run_critic(
         api_key_env=runtime.api.api_key_env,
         request_options=request_options,
     )
+    api_tool_calls = normalize_tool_calls(api_draft.tool_calls)
+    api_function_call = api_draft.function_call if api_tool_calls is None else None
+
     draft_payload = build_adapter_draft_payload(
         content=api_draft.content,
-        tool_calls=api_draft.tool_calls,
-        function_call=api_draft.function_call,
+        tool_calls=api_tool_calls,
+        function_call=api_function_call,
     )
 
     critic_messages = build_critic_messages(
@@ -47,6 +52,7 @@ async def run_critic(
         system_prompt=_first_system_prompt(messages),
         draft=draft_payload,
         critic_system_prompt=runtime.critic_system_prompt,
+        request_options=request_options,
     )
     critic_feedback = await gateway.complete(
         model=runtime.critic.model,
@@ -66,13 +72,19 @@ async def run_critic(
         api_key_env=runtime.api.api_key_env,
         request_options=request_options,
     )
+    intermediate: dict[str, str] = {
+        "api_draft": api_draft.content,
+        "critic": critic_feedback.content,
+        "final": final_response.content,
+    }
+    if api_tool_calls is not None:
+        intermediate["api_draft_tool_calls"] = json.dumps(api_tool_calls, sort_keys=True)
+    if api_function_call is not None:
+        intermediate["api_draft_function_call"] = json.dumps(api_function_call, sort_keys=True)
+
     return WorkflowOutput(
         final_text=final_response.content,
-        intermediate={
-            "api_draft": api_draft.content,
-            "critic": critic_feedback.content,
-            "final": final_response.content,
-        },
+        intermediate=intermediate,
         stage_usage={
             "api_draft": api_draft.usage,
             "critic": critic_feedback.usage,

@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import FastAPI, Request
+from loguru import logger
 
 from adapter_critic.contracts import ChatMessage
 from adapter_critic.http_gateway import OpenAICompatibleHttpGateway, UpstreamResponseFormatError
@@ -335,3 +336,72 @@ async def test_openai_compatible_http_gateway_rejects_empty_content_with_empty_t
         )
 
     assert exc_info.value.reason == "assistant message has empty content and no tool calls"
+
+
+@pytest.mark.anyio
+async def test_openai_compatible_http_gateway_logs_malformed_outbound_tool_call_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    records: list[str] = []
+
+    def capture(message: Any) -> None:
+        records.append(message.record["message"])
+
+    sink_id = logger.add(capture, level="WARNING")
+    upstream = FastAPI()
+
+    @upstream.post("/v1/chat/completions")
+    async def chat(payload: dict[str, Any]) -> dict[str, Any]:
+        assert payload["model"] == "api-model"
+        return {
+            "id": "chatcmpl-upstream",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "api-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+        }
+
+    transport = httpx.ASGITransport(app=upstream)
+    original_async_client = httpx.AsyncClient
+
+    def patched_async_client(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        return original_async_client(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_async_client)
+
+    gateway = OpenAICompatibleHttpGateway(api_key="dummy", timeout_seconds=5.0)
+    malformed_history_message = ChatMessage.model_validate(
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "foo", "arguments": {"x": 1}},
+                }
+            ],
+        }
+    )
+    try:
+        result = await gateway.complete(
+            model="api-model",
+            base_url="http://testserver/v1",
+            messages=[ChatMessage(role="user", content="hello"), malformed_history_message],
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert result.content == "ok"
+    assert any(
+        "detected malformed assistant tool calls before upstream request" in record
+        and "tool_call.function.arguments must be a string" in record
+        for record in records
+    )

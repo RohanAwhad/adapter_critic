@@ -21,8 +21,10 @@ from .upstream import UpstreamGateway
 from .usage import aggregate_usage
 
 
-def _body_preview(body: bytes, *, max_chars: int = 2000) -> str:
+def _body_preview(body: bytes, *, max_chars: int | None = 2000) -> str:
     text = body.decode("utf-8", errors="replace")
+    if max_chars is None or max_chars <= 0:
+        return text
     if len(text) <= max_chars:
         return text
     return f"{text[:max_chars]}..."
@@ -114,12 +116,14 @@ def create_app(
         except httpx.HTTPError as exc:
             request_url = str(exc.request.url) if getattr(exc, "request", None) is not None else "unknown"
             status_code = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else "None"
-            logger.error(
-                "upstream request failed request_url={} status_code={} error_type={} detail={}",
+            response_body = _body_preview(exc.response.content) if isinstance(exc, httpx.HTTPStatusError) else "None"
+            logger.exception(
+                "upstream request failed request_url={} status_code={} error_type={} detail={} response_body={}",
                 request_url,
                 status_code,
                 type(exc).__name__,
                 str(exc),
+                response_body,
             )
             raise HTTPException(status_code=502, detail="upstream request failed") from exc
 

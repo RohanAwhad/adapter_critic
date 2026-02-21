@@ -11,14 +11,84 @@ from .contracts import ChatMessage
 from .upstream import TokenUsage, UpstreamResult
 
 
-def _payload_preview(payload: Any, *, max_chars: int = 400) -> str:
+def _payload_preview(payload: Any, *, max_chars: int | None = 400) -> str:
     try:
         serialized = json.dumps(payload, default=str)
     except TypeError:
         serialized = str(payload)
+    if max_chars is None or max_chars <= 0:
+        return serialized
     if len(serialized) <= max_chars:
         return serialized
     return f"{serialized[:max_chars]}..."
+
+
+def _json_char_len(value: Any) -> int:
+    return len(json.dumps(value, default=str, separators=(",", ":")))
+
+
+def _approx_token_count(char_len: int) -> int:
+    return max(1, (char_len + 3) // 4)
+
+
+def _malformed_tool_call_issues(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+
+    for message_idx, message in enumerate(messages):
+        if message.get("role") != "assistant":
+            continue
+
+        tool_calls = message.get("tool_calls")
+        if tool_calls is None:
+            continue
+        if not isinstance(tool_calls, list):
+            issues.append(
+                {
+                    "message_index": message_idx,
+                    "issue": "assistant tool_calls is not a list",
+                    "tool_calls_type": type(tool_calls).__name__,
+                }
+            )
+            continue
+
+        for tool_call_idx, tool_call in enumerate(tool_calls):
+            if not isinstance(tool_call, dict):
+                issues.append(
+                    {
+                        "message_index": message_idx,
+                        "tool_call_index": tool_call_idx,
+                        "issue": "tool_call entry is not an object",
+                        "tool_call_type": type(tool_call).__name__,
+                    }
+                )
+                continue
+
+            function = tool_call.get("function")
+            if not isinstance(function, dict):
+                issues.append(
+                    {
+                        "message_index": message_idx,
+                        "tool_call_index": tool_call_idx,
+                        "issue": "tool_call.function is not an object",
+                        "function_type": type(function).__name__,
+                    }
+                )
+                continue
+
+            arguments = function.get("arguments")
+            if not isinstance(arguments, str):
+                issues.append(
+                    {
+                        "message_index": message_idx,
+                        "tool_call_index": tool_call_idx,
+                        "issue": "tool_call.function.arguments must be a string",
+                        "arguments_type": type(arguments).__name__,
+                        "tool_name": function.get("name"),
+                        "arguments_preview": _payload_preview(arguments, max_chars=0),
+                    }
+                )
+
+    return issues
 
 
 class UpstreamResponseFormatError(RuntimeError):
@@ -90,12 +160,32 @@ class OpenAICompatibleHttpGateway:
                 if key not in {"model", "messages"}:
                     payload[key] = value
 
+        messages_char_len = _json_char_len(payload["messages"])
+        request_options_char_len = _json_char_len(
+            {key: value for key, value in payload.items() if key not in {"model", "messages"}}
+        )
+        approx_prompt_tokens = _approx_token_count(messages_char_len + request_options_char_len)
+
+        malformed_issues = _malformed_tool_call_issues(payload["messages"])
+        if len(malformed_issues) > 0:
+            logger.warning(
+                "detected malformed assistant tool calls before upstream request "
+                "model={} base_url={} issues_count={} issues={}",
+                model,
+                base_url,
+                len(malformed_issues),
+                _payload_preview(malformed_issues, max_chars=0),
+            )
+
         logger.debug(
-            "upstream request model={} base_url={} message_count={} messages={}",
+            "upstream request model={} base_url={} message_count={} messages_char_len={} "
+            "request_options_char_len={} approx_prompt_tokens={}",
             model,
             base_url,
             len(messages),
-            _payload_preview(payload["messages"], max_chars=2000),
+            messages_char_len,
+            request_options_char_len,
+            approx_prompt_tokens,
         )
 
         async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
@@ -207,13 +297,17 @@ class OpenAICompatibleHttpGateway:
 
         logger.debug(
             "upstream parsed model={} content_len={} content_type={} "
-            "tool_calls_count={} tool_calls_raw_type={} finish_reason={}",
+            "tool_calls_count={} tool_calls_raw_type={} finish_reason={} "
+            "prompt_tokens={} completion_tokens={} total_tokens={}",
             model,
             len(content),
             type(content_value).__name__,
             len(tool_calls) if tool_calls is not None else "None",
             type(tool_calls_value).__name__,
             first_choice.get("finish_reason"),
+            int(usage.get("prompt_tokens", 0)),
+            int(usage.get("completion_tokens", 0)),
+            int(usage.get("total_tokens", 0)),
         )
 
         finish_reason_value = first_choice.get("finish_reason")

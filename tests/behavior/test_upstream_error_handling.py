@@ -82,11 +82,26 @@ def test_upstream_format_error_returns_502_and_logs_context(
 
 
 def test_upstream_http_error_returns_502(base_config: AppConfig) -> None:
+    records: list[dict[str, Any]] = []
+
+    def capture(message: Any) -> None:
+        records.append(message.record)
+
+    sink_id = logger.add(capture, level="ERROR")
     client = TestClient(create_app(config=base_config, gateway=HttpFailureGateway()))
-    response = client.post(
-        "/v1/chat/completions",
-        json={"model": "served-direct", "messages": [{"role": "user", "content": "hello"}]},
-    )
+    try:
+        response = client.post(
+            "/v1/chat/completions",
+            json={"model": "served-direct", "messages": [{"role": "user", "content": "hello"}]},
+        )
+    finally:
+        logger.remove(sink_id)
 
     assert response.status_code == 502
     assert response.json() == {"detail": "upstream request failed"}
+    assert any(
+        "status_code=500" in record["message"]
+        and 'response_body={"error":{"message":"upstream down"}}' in record["message"]
+        and record["exception"] is not None
+        for record in records
+    )

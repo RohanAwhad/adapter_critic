@@ -76,6 +76,38 @@ def _empty_assistant_error() -> UpstreamResponseFormatError:
     )
 
 
+def _invalid_tool_call_arguments_error() -> UpstreamResponseFormatError:
+    return UpstreamResponseFormatError(
+        reason="choices[0].message.tool_calls[*].function.arguments is not valid JSON at index 0",
+        model="api-model",
+        base_url="https://api.example",
+        message_count=4,
+        status_code=200,
+        response_body={
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_transfer",
+                                "type": "function",
+                                "function": {
+                                    "name": "transfer_to_human_agents",
+                                    "arguments": "{...}",
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        },
+    )
+
+
 def test_critic_mode_path(base_config: AppConfig) -> None:
     client, gateway = build_client(
         base_config,
@@ -248,4 +280,44 @@ def test_critic_mode_falls_back_to_api_draft_after_final_pass_retries(base_confi
     assert payload["adapter_critic"]["intermediate"]["final_fallback_reason"].startswith(
         "api_final failed after 2 attempts"
     )
+    assert [call["model"] for call in gateway.calls] == ["api-model", "critic-model", "api-model", "api-model"]
+
+
+def test_critic_mode_falls_back_when_final_pass_tool_call_arguments_are_malformed(base_config: AppConfig) -> None:
+    draft_tool_calls = [
+        {
+            "id": "call_transfer",
+            "type": "function",
+            "function": {
+                "name": "transfer_to_human_agents",
+                "arguments": '{"summary":"needs exception"}',
+            },
+        }
+    ]
+    client, gateway = _build_flaky_client(
+        base_config,
+        outcomes=[
+            UpstreamResult(
+                content="",
+                usage=usage(2, 2, 4),
+                tool_calls=draft_tool_calls,
+                finish_reason="tool_calls",
+            ),
+            UpstreamResult(content="Use transfer tool call", usage=usage(1, 1, 2)),
+            _invalid_tool_call_arguments_error(),
+            _invalid_tool_call_arguments_error(),
+        ],
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={"model": "served-critic", "messages": [{"role": "user", "content": "question"}]},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["choices"][0]["finish_reason"] == "tool_calls"
+    assert payload["choices"][0]["message"]["content"] == ""
+    assert payload["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "transfer_to_human_agents"
+    assert "function.arguments is not valid JSON" in payload["adapter_critic"]["intermediate"]["final_fallback_reason"]
     assert [call["model"] for call in gateway.calls] == ["api-model", "critic-model", "api-model", "api-model"]

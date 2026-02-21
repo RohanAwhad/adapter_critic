@@ -405,3 +405,59 @@ async def test_openai_compatible_http_gateway_logs_malformed_outbound_tool_call_
         and "tool_call.function.arguments must be a string" in record
         for record in records
     )
+
+
+@pytest.mark.anyio
+async def test_openai_compatible_http_gateway_rejects_non_json_tool_call_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upstream = FastAPI()
+
+    @upstream.post("/v1/chat/completions")
+    async def chat(payload: dict[str, Any]) -> dict[str, Any]:
+        assert payload["model"] == "api-model"
+        return {
+            "id": "chatcmpl-upstream",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "api-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_cancel",
+                                "type": "function",
+                                "function": {
+                                    "name": "cancel_reservation",
+                                    "arguments": "{...}",
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
+        }
+
+    transport = httpx.ASGITransport(app=upstream)
+    original_async_client = httpx.AsyncClient
+
+    def patched_async_client(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        return original_async_client(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", patched_async_client)
+
+    gateway = OpenAICompatibleHttpGateway(api_key="dummy", timeout_seconds=5.0)
+    with pytest.raises(UpstreamResponseFormatError) as exc_info:
+        await gateway.complete(
+            model="api-model",
+            base_url="http://testserver/v1",
+            messages=[ChatMessage(role="user", content="hello")],
+        )
+
+    assert exc_info.value.reason.startswith("choices[0].message.tool_calls[*].function.arguments is not valid JSON")

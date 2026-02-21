@@ -273,6 +273,42 @@ class OpenAICompatibleHttpGateway:
                 response_body=data,
             )
 
+        if tool_calls is not None:
+            for index, tool_call in enumerate(tool_calls):
+                function = tool_call.get("function")
+                if not isinstance(function, dict):
+                    raise UpstreamResponseFormatError(
+                        reason="choices[0].message.tool_calls[*].function is not an object",
+                        model=model,
+                        base_url=base_url,
+                        message_count=len(messages),
+                        status_code=response.status_code,
+                        response_body=data,
+                    )
+                arguments = function.get("arguments")
+                if not isinstance(arguments, str):
+                    raise UpstreamResponseFormatError(
+                        reason="choices[0].message.tool_calls[*].function.arguments is not a string",
+                        model=model,
+                        base_url=base_url,
+                        message_count=len(messages),
+                        status_code=response.status_code,
+                        response_body=data,
+                    )
+                try:
+                    json.loads(arguments)
+                except ValueError as exc:
+                    raise UpstreamResponseFormatError(
+                        reason=(
+                            f"choices[0].message.tool_calls[*].function.arguments is not valid JSON at index {index}"
+                        ),
+                        model=model,
+                        base_url=base_url,
+                        message_count=len(messages),
+                        status_code=response.status_code,
+                        response_body=data,
+                    ) from exc
+
         raw_usage = data.get("usage", {})
         usage = raw_usage if isinstance(raw_usage, dict) else {}
         content_value = message.get("content")

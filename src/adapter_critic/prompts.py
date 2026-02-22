@@ -136,7 +136,12 @@ def build_critic_second_pass_messages(messages: list[ChatMessage], draft: str, c
     return [
         *messages,
         ChatMessage(
-            role="system",
-            content=(f"Critique for improving prior draft:\n{critique}\n\nPrior draft:\n{draft}"),
+            role="user",
+            content=(
+                f"Below is your prior draft and feedback from a small critic model.\n"
+                f"The critic is less capable than you — use your own judgment about whether to act on its feedback.\n\n"
+                f"Critic feedback:\n{critique}\n\n"
+                f"Prior draft:\n{draft}"
+            ),
         ),
     ]

@@ -7,8 +7,10 @@ requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.116.0",
   "httpx>=0.28.1",
+  "its-hub",
   "loguru>=0.7.3",
   "pydantic>=2.11.7",
+  "reward-hub",
   "uvicorn>=0.35.0",
 ]
 
@@ -51,3 +53,7 @@ warn_return_any = true
 no_implicit_optional = true
 pretty = true
 mypy_path = ["src"]
+
+[tool.uv.sources]
+its-hub = { git = "https://github.com/RohanAwhad/its_hub.git", branch = "adapter_critic" }
+reward-hub = { git = "https://github.com/RohanAwhad/reward_hub.git", branch = "adapter_critic" }

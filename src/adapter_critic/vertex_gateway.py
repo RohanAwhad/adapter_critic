@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
-import httpx
+from anthropic import AsyncAnthropicVertex
 from loguru import logger
 
 from .contracts import ChatMessage
@@ -19,6 +19,19 @@ def _payload_preview(payload: Any, *, max_chars: int | None = 400) -> str:
     if len(serialized) <= max_chars:
         return serialized
     return f"{serialized[:max_chars]}..."
+
+
+def _as_log_payload(payload: Any) -> Any:
+    model_dump = getattr(payload, "model_dump", None)
+    if callable(model_dump):
+        return model_dump()
+    return payload
+
+
+def _value_get(payload: Any, key: str, default: Any = None) -> Any:
+    if isinstance(payload, dict):
+        return payload.get(key, default)
+    return getattr(payload, key, default)
 
 
 def is_vertex_anthropic_target(*, model: str, base_url: str) -> bool:
@@ -41,34 +54,40 @@ def _normalize_vertex_model_name(model: str) -> str:
     return model
 
 
-def _resolve_vertex_endpoint(*, model: str, base_url: str) -> str:
-    trimmed = base_url.rstrip("/")
-    lowered = trimmed.lower()
+def _required_path_segment(path_parts: list[str], marker: str) -> str:
+    try:
+        marker_index = path_parts.index(marker)
+    except ValueError as exc:
+        raise ValueError(f"vertex base_url missing '{marker}' segment") from exc
 
-    stream_suffix = ":streamrawpredict"
-    if lowered.endswith(stream_suffix):
-        return f"{trimmed[: len(trimmed) - len(stream_suffix)]}:rawPredict"
-    if lowered.endswith(":rawpredict"):
-        return trimmed
+    value_index = marker_index + 1
+    if value_index >= len(path_parts) or path_parts[value_index] == "":
+        raise ValueError(f"vertex base_url missing value after '{marker}' segment")
+    return path_parts[value_index]
 
-    if "/publishers/anthropic/models/" in lowered:
-        return f"{trimmed}:rawPredict"
+
+def _resolve_vertex_client_config(*, model: str, base_url: str) -> tuple[str, str, str, str]:
+    parsed = urlparse(base_url.rstrip("/"))
+    if parsed.scheme == "" or parsed.netloc == "":
+        raise ValueError("vertex base_url must include scheme and host")
+
+    path_parts = [part for part in parsed.path.split("/") if part != ""]
+    project_id = _required_path_segment(path_parts, "projects")
+    region = _required_path_segment(path_parts, "locations")
+
+    if "v1" in path_parts:
+        v1_index = path_parts.index("v1")
+        base_path = "/" + "/".join(path_parts[: v1_index + 1])
+    else:
+        base_path = "/v1"
+
+    client_base_url = urlunparse((parsed.scheme, parsed.netloc, base_path, "", "", ""))
 
     normalized_model = _normalize_vertex_model_name(model)
-    return f"{trimmed}/publishers/anthropic/models/{normalized_model}:rawPredict"
+    if normalized_model == "":
+        raise ValueError("vertex model must not be empty")
 
-
-def _resolve_gcloud_access_token() -> str:
-    process = subprocess.run(
-        ["gcloud", "auth", "print-access-token"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    token = process.stdout.strip()
-    if token == "":
-        raise RuntimeError("gcloud auth print-access-token returned empty access token")
-    return token
+    return client_base_url, project_id, region, normalized_model
 
 
 def _extract_system_prompt(messages: list[ChatMessage]) -> str:
@@ -255,16 +274,16 @@ def _map_finish_reason(stop_reason: Any) -> str:
     return "stop"
 
 
+def _safe_int(value: Any) -> int:
+    if isinstance(value, int):
+        return value
+    return 0
+
+
 def _map_usage(usage: Any) -> TokenUsage:
-    usage_dict = usage if isinstance(usage, dict) else {}
-
-    prompt_tokens_raw = usage_dict.get("input_tokens", usage_dict.get("prompt_tokens", 0))
-    completion_tokens_raw = usage_dict.get("output_tokens", usage_dict.get("completion_tokens", 0))
-    prompt_tokens = prompt_tokens_raw if isinstance(prompt_tokens_raw, int) else 0
-    completion_tokens = completion_tokens_raw if isinstance(completion_tokens_raw, int) else 0
-
-    total_tokens_raw = usage_dict.get("total_tokens")
-    total_tokens = total_tokens_raw if isinstance(total_tokens_raw, int) else prompt_tokens + completion_tokens
+    prompt_tokens = _safe_int(_value_get(usage, "input_tokens", _value_get(usage, "prompt_tokens", 0)))
+    completion_tokens = _safe_int(_value_get(usage, "output_tokens", _value_get(usage, "completion_tokens", 0)))
+    total_tokens = _safe_int(_value_get(usage, "total_tokens", prompt_tokens + completion_tokens))
 
     return TokenUsage(
         prompt_tokens=prompt_tokens,
@@ -292,12 +311,10 @@ class VertexAICompatibleHttpGateway:
     ) -> UpstreamResult:
         del api_key_env
 
-        endpoint_url = _resolve_vertex_endpoint(model=model, base_url=base_url)
-        access_token = _resolve_gcloud_access_token()
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        }
+        client_base_url, project_id, region, normalized_model = _resolve_vertex_client_config(
+            model=model,
+            base_url=base_url,
+        )
 
         anthropic_messages: list[dict[str, Any]] = []
         for message in messages:
@@ -306,116 +323,111 @@ class VertexAICompatibleHttpGateway:
                 anthropic_messages.append(mapped_message)
 
         mapped_request_options = _map_request_options(request_options)
-        payload: dict[str, Any] = {
-            "anthropic_version": "vertex-2023-10-16",
+        create_kwargs: dict[str, Any] = {
+            "model": normalized_model,
             "messages": anthropic_messages,
             "max_tokens": int(mapped_request_options.get("max_tokens", 8192)),
         }
 
         system_prompt = _extract_system_prompt(messages)
         if system_prompt != "":
-            payload["system"] = system_prompt
+            create_kwargs["system"] = system_prompt
 
         for key, value in mapped_request_options.items():
             if key != "max_tokens":
-                payload[key] = value
+                create_kwargs[key] = value
 
         logger.debug(
-            "vertex anthropic request model={} endpoint={} message_count={} payload={}",
-            model,
-            endpoint_url,
+            "vertex anthropic request model={} client_base_url={} region={} project_id={} message_count={} payload={}",
+            normalized_model,
+            client_base_url,
+            region,
+            project_id,
             len(anthropic_messages),
-            _payload_preview(payload),
+            _payload_preview(create_kwargs),
         )
 
-        async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
-            response = await client.post(endpoint_url, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
+        client_kwargs: dict[str, Any] = {
+            "region": region,
+            "project_id": project_id,
+            "base_url": client_base_url,
+            "timeout": self._timeout_seconds,
+        }
+
+        async def _run_request(kwargs: dict[str, Any]) -> Any:
+            async with AsyncAnthropicVertex(**kwargs) as client:
+                return await client.messages.create(**create_kwargs)
+
+        response = await _run_request(client_kwargs)
 
         logger.debug(
-            "vertex anthropic raw response model={} endpoint={} status={} payload={}",
-            model,
-            endpoint_url,
-            response.status_code,
-            _payload_preview(data, max_chars=2000),
+            "vertex anthropic raw response model={} client_base_url={} payload={}",
+            normalized_model,
+            client_base_url,
+            _payload_preview(_as_log_payload(response), max_chars=2000),
         )
 
-        if not isinstance(data, dict):
+        content_value = _value_get(response, "content")
+        if not isinstance(content_value, list):
             raise UpstreamResponseFormatError(
-                reason="vertex anthropic response body is not a JSON object",
-                model=model,
-                base_url=endpoint_url,
+                reason="vertex anthropic content is not a list",
+                model=normalized_model,
+                base_url=base_url,
                 message_count=len(messages),
-                status_code=response.status_code,
-                response_body=data,
+                status_code=200,
+                response_body=_as_log_payload(response),
             )
 
-        content_value = data.get("content")
         content_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
-
-        if isinstance(content_value, str):
-            content_parts.append(content_value)
-        elif isinstance(content_value, list):
-            for block in content_value:
-                if not isinstance(block, dict):
+        for block in content_value:
+            block_type = _value_get(block, "type")
+            if block_type == "text":
+                text_value = _value_get(block, "text")
+                if isinstance(text_value, str):
+                    content_parts.append(text_value)
+            elif block_type == "tool_use":
+                tool_call_id = _value_get(block, "id")
+                tool_name = _value_get(block, "name")
+                tool_input = _value_get(block, "input")
+                if not isinstance(tool_call_id, str):
                     raise UpstreamResponseFormatError(
-                        reason="vertex anthropic content block is not an object",
-                        model=model,
-                        base_url=endpoint_url,
+                        reason="vertex anthropic tool_use block id is not a string",
+                        model=normalized_model,
+                        base_url=base_url,
                         message_count=len(messages),
-                        status_code=response.status_code,
-                        response_body=data,
+                        status_code=200,
+                        response_body=_as_log_payload(response),
+                    )
+                if not isinstance(tool_name, str):
+                    raise UpstreamResponseFormatError(
+                        reason="vertex anthropic tool_use block name is not a string",
+                        model=normalized_model,
+                        base_url=base_url,
+                        message_count=len(messages),
+                        status_code=200,
+                        response_body=_as_log_payload(response),
+                    )
+                if not isinstance(tool_input, dict):
+                    raise UpstreamResponseFormatError(
+                        reason="vertex anthropic tool_use block input is not an object",
+                        model=normalized_model,
+                        base_url=base_url,
+                        message_count=len(messages),
+                        status_code=200,
+                        response_body=_as_log_payload(response),
                     )
 
-                block_type = block.get("type")
-                if block_type == "text":
-                    text_value = block.get("text")
-                    if isinstance(text_value, str):
-                        content_parts.append(text_value)
-                elif block_type == "tool_use":
-                    tool_call_id = block.get("id")
-                    tool_name = block.get("name")
-                    tool_input = block.get("input")
-                    if not isinstance(tool_call_id, str):
-                        raise UpstreamResponseFormatError(
-                            reason="vertex anthropic tool_use block id is not a string",
-                            model=model,
-                            base_url=endpoint_url,
-                            message_count=len(messages),
-                            status_code=response.status_code,
-                            response_body=data,
-                        )
-                    if not isinstance(tool_name, str):
-                        raise UpstreamResponseFormatError(
-                            reason="vertex anthropic tool_use block name is not a string",
-                            model=model,
-                            base_url=endpoint_url,
-                            message_count=len(messages),
-                            status_code=response.status_code,
-                            response_body=data,
-                        )
-                    if not isinstance(tool_input, dict):
-                        raise UpstreamResponseFormatError(
-                            reason="vertex anthropic tool_use block input is not an object",
-                            model=model,
-                            base_url=endpoint_url,
-                            message_count=len(messages),
-                            status_code=response.status_code,
-                            response_body=data,
-                        )
-
-                    tool_calls.append(
-                        {
-                            "id": tool_call_id,
-                            "type": "function",
-                            "function": {
-                                "name": tool_name,
-                                "arguments": json.dumps(tool_input, separators=(",", ":"), sort_keys=True),
-                            },
-                        }
-                    )
+                tool_calls.append(
+                    {
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": tool_name,
+                            "arguments": json.dumps(tool_input, separators=(",", ":"), sort_keys=True),
+                        },
+                    }
+                )
 
         content = "".join(content_parts)
         normalized_tool_calls = tool_calls if len(tool_calls) > 0 else None
@@ -423,21 +435,20 @@ class VertexAICompatibleHttpGateway:
         if content == "" and normalized_tool_calls is None:
             raise UpstreamResponseFormatError(
                 reason="assistant message has empty content and no tool calls",
-                model=model,
-                base_url=endpoint_url,
+                model=normalized_model,
+                base_url=base_url,
                 message_count=len(messages),
-                status_code=response.status_code,
-                response_body=data,
+                status_code=200,
+                response_body=_as_log_payload(response),
             )
 
-        finish_reason = _map_finish_reason(data.get("stop_reason"))
-        usage = _map_usage(data.get("usage"))
+        finish_reason = _map_finish_reason(_value_get(response, "stop_reason"))
+        usage = _map_usage(_value_get(response, "usage"))
 
         logger.debug(
-            "vertex anthropic parsed model={} endpoint={} content_len={} tool_calls_count={} finish_reason={} "
+            "vertex anthropic parsed model={} content_len={} tool_calls_count={} finish_reason={} "
             "prompt_tokens={} completion_tokens={} total_tokens={}",
-            model,
-            endpoint_url,
+            normalized_model,
             len(content),
             len(tool_calls),
             finish_reason,

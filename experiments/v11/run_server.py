@@ -17,7 +17,7 @@ from pathlib import Path
 
 import httpx
 import uvicorn
-from its_hub.integration.iaas import app as iaas_app
+from its_hub.integration.iaas import app as iaas_app  # type: ignore[import-untyped]
 from loguru import logger
 
 from adapter_critic.app import create_app

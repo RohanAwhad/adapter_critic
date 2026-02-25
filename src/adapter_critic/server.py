@@ -10,7 +10,9 @@ from .app import create_app
 from .config import AppConfig
 from .http_gateway import OpenAICompatibleHttpGateway
 from .logging_setup import configure_logging
+from .routing_gateway import RoutingGateway
 from .runtime import build_runtime_state
+from .vertex_gateway import VertexAICompatibleHttpGateway
 
 
 def _parse_args() -> argparse.Namespace:
@@ -33,10 +35,12 @@ def main() -> None:
     configure_logging()
     args = _parse_args()
     config = _load_config(args.config)
-    gateway = OpenAICompatibleHttpGateway(
+    openai_gateway = OpenAICompatibleHttpGateway(
         default_api_key_env=args.api_key_env,
         timeout_seconds=args.timeout_seconds,
     )
+    vertex_gateway = VertexAICompatibleHttpGateway(timeout_seconds=args.timeout_seconds)
+    gateway = RoutingGateway(openai_gateway=openai_gateway, vertex_gateway=vertex_gateway)
     state = build_runtime_state(config=config, gateway=gateway)
     app = create_app(config=config, gateway=gateway, state=state)
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)

@@ -1,10 +1,11 @@
 # adapter_critic
 
-OpenAI-compatible FastAPI wrapper for `POST /v1/chat/completions` with 3 workflows:
+OpenAI-compatible FastAPI wrapper for `POST /v1/chat/completions` with 4 workflows:
 
 - `direct`: API model only
 - `adapter`: API draft -> adapter review/edit -> final
 - `critic`: API draft -> critic feedback -> second API pass -> final
+- `advisor`: advisor guidance -> API final
 
 ## Quick Start
 
@@ -57,6 +58,20 @@ You can configure per-served-model adapter/critic system prompts in startup conf
         "base_url": "https://api.groq.com/openai/v1",
         "api_key_env": "GROQ_API_KEY"
       }
+    },
+    "served-advisor": {
+      "mode": "advisor",
+      "api": {
+        "model": "gpt-4.1-mini",
+        "base_url": "https://api.openai.com/v1",
+        "api_key_env": "OPENAI_API_KEY"
+      },
+      "advisor": {
+        "model": "openai/gpt-oss-20b",
+        "base_url": "https://api.groq.com/openai/v1",
+        "api_key_env": "GROQ_API_KEY"
+      },
+      "advisor_system_prompt": "You are an expert advisor for another language model. Provide concise, actionable guidance on how to solve the user's request: where to look, what steps/tools to use, what pitfalls to avoid, and what the final answer must include. Do not answer the user directly. Do not emit tool calls. Return guidance only."
     }
   }
 }
@@ -130,10 +145,11 @@ Override precedence:
 
 Supported override fields:
 
-- `mode`: `direct | adapter | critic`
+- `mode`: `direct | adapter | critic | advisor`
 - `api_model`, `api_base_url`
 - `adapter_model`, `adapter_base_url`
 - `critic_model`, `critic_base_url`
+- `advisor_model`, `advisor_base_url`
 - `max_adapter_retries` (non-negative int, default `0`)
 
 Per-stage API key config:
@@ -146,6 +162,7 @@ Mode target fallback:
 
 - if `mode=adapter` and no adapter target is configured/provided, adapter stage falls back to API target
 - if `mode=critic` and no critic target is configured/provided, critic stage falls back to API target
+- if `mode=advisor` and no advisor target is configured/provided, advisor stage falls back to API target
 - partial secondary overrides are rejected (example: model without base URL and no default target)
 
 Invalid routing/overrides return `400` with `invalid model routing or overrides`.
@@ -157,12 +174,19 @@ Invalid routing/overrides return `400` with `invalid model routing or overrides`
 | `direct` | API | `api` | `api` |
 | `adapter` | API -> Adapter | `api_draft`, `adapter`, `final` | `api`, `adapter` |
 | `critic` | API -> Critic -> API | `api_draft`, `critic`, `final` | `api_draft`, `critic`, `api_final` |
+| `advisor` | Advisor -> API | `advisor`, `final` | `advisor`, `api` |
 
 Adapter edit semantics:
 
 - adapter runs in JSON mode and returns `{"decision":"lgtm"}` to accept draft unchanged, or
 - adapter returns `{"decision":"patch","patches":[...]}` with RFC6902-style `replace` operations.
 - retries are controlled by `max_adapter_retries` (default `0` = single adapter attempt)
+
+Advisor semantics:
+
+- advisor sees the full original message list and can receive tool contract context in its system prompt
+- advisor does not receive tool call request options directly
+- advisor guidance is appended to the last user message in an `[ADVISOR_GUIDANCE] ... [/ADVISOR_GUIDANCE]` block before the API call
 
 ## OpenAI SDK Example
 

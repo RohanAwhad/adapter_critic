@@ -43,6 +43,19 @@ def _api_key_env_config() -> AppConfig:
                         "api_key_var": "ANTHROPIC_API_KEY",
                     },
                 },
+                "served-advisor": {
+                    "mode": "advisor",
+                    "api": {
+                        "model": "api-model",
+                        "base_url": "https://api.example",
+                        "api_key_var": "OPENAI_API_KEY",
+                    },
+                    "advisor": {
+                        "model": "advisor-model",
+                        "base_url": "https://advisor.example",
+                        "api_key_var": "ADVISOR_API_KEY",
+                    },
+                },
             }
         }
     )
@@ -84,3 +97,19 @@ def test_critic_mode_routes_stage_api_key_env() -> None:
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
     ]
+
+
+def test_advisor_mode_routes_stage_api_key_env() -> None:
+    client, gateway = build_client(
+        _api_key_env_config(),
+        [
+            UpstreamResult(content="check policy and constraints", usage=usage(1, 1, 2)),
+            UpstreamResult(content="final", usage=usage(1, 1, 2)),
+        ],
+    )
+    response = client.post(
+        "/v1/chat/completions",
+        json={"model": "served-advisor", "messages": [{"role": "user", "content": "hello"}]},
+    )
+    assert response.status_code == 200
+    assert [call["api_key_env"] for call in gateway.calls] == ["ADVISOR_API_KEY", "OPENAI_API_KEY"]

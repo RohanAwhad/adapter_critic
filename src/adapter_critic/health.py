@@ -29,7 +29,7 @@ def collect_health_targets(config: AppConfig) -> list[HealthTarget]:
     by_key: dict[tuple[str, str, str | None], dict[str, Any]] = {}
 
     for served_model, served in config.served_models.items():
-        for stage_name in ("api", "adapter", "critic"):
+        for stage_name in ("api", "adapter", "critic", "advisor"):
             stage = getattr(served, stage_name)
             if stage is None:
                 continue

@@ -120,3 +120,29 @@ def test_adapter_telemetry_includes_rejection_reason_when_patch_rejected(base_co
         },
     ).json()
     assert "adapter_rejection_reason" in adapter_payload["adapter_critic"]["intermediate"]
+
+
+def test_advisor_telemetry_schema_stage_keys(base_config: AppConfig) -> None:
+    config_payload = base_config.model_dump(exclude_none=True)
+    config_payload["served_models"]["served-advisor"] = {
+        "mode": "advisor",
+        "api": {"model": "api-model", "base_url": "https://api.example"},
+        "advisor": {"model": "advisor-model", "base_url": "https://advisor.example"},
+    }
+    advisor_config = AppConfig.model_validate(config_payload)
+    client, _gateway = build_client(
+        advisor_config,
+        [
+            UpstreamResult(content="look up cancellation policy", usage=usage(2, 1, 3)),
+            UpstreamResult(content="final answer", usage=usage(3, 2, 5)),
+        ],
+    )
+
+    payload = client.post(
+        "/v1/chat/completions",
+        json={"model": "served-advisor", "messages": [{"role": "user", "content": "hi"}]},
+    ).json()
+
+    assert payload["adapter_critic"]["mode"] == "advisor"
+    assert set(payload["adapter_critic"]["intermediate"].keys()) == {"advisor", "final"}
+    assert set(payload["adapter_critic"]["tokens"]["stages"].keys()) == {"advisor", "api"}

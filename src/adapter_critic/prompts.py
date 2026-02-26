@@ -48,6 +48,16 @@ CRITIC_SYSTEM_PROMPT = (
     "You are a critique generator. Explain what is correct, what is wrong/missing, and exact fix instructions."
 )
 
+ADVISOR_SYSTEM_PROMPT = (
+    "You are an expert advisor for another language model. "
+    "Provide concise, actionable guidance on how to solve the user's request: where to look, "
+    "what steps/tools to use, what pitfalls to avoid, and what the final answer must include. "
+    "Do not answer the user directly. Do not emit tool calls. Return guidance only."
+)
+
+ADVISOR_GUIDANCE_OPEN_TAG = "[ADVISOR_GUIDANCE]"
+ADVISOR_GUIDANCE_CLOSE_TAG = "[/ADVISOR_GUIDANCE]"
+
 
 def _render_history(messages: list[ChatMessage]) -> str:
     rendered = []
@@ -145,3 +155,49 @@ def build_critic_second_pass_messages(messages: list[ChatMessage], draft: str, c
             ),
         ),
     ]
+
+
+def build_advisor_messages(
+    messages: list[ChatMessage],
+    advisor_system_prompt: str = ADVISOR_SYSTEM_PROMPT,
+    request_options: dict[str, Any] | None = None,
+) -> list[ChatMessage]:
+    tool_contract = _render_tool_contract(request_options)
+    system_prompt_content = advisor_system_prompt
+    if tool_contract is not None:
+        system_prompt_content = (
+            f"{advisor_system_prompt}\n\n"
+            "Authoritative tool contract for this request:\n"
+            f"{tool_contract}\n\n"
+            "Use this contract only as planning context. Never emit tool calls directly."
+        )
+
+    return [
+        ChatMessage(role="system", content=system_prompt_content),
+        *messages,
+    ]
+
+
+def _build_advisor_guidance_block(advisor_guidance: str) -> str:
+    return f"{ADVISOR_GUIDANCE_OPEN_TAG}\n{advisor_guidance}\n{ADVISOR_GUIDANCE_CLOSE_TAG}"
+
+
+def append_advisor_guidance_to_last_user_message(
+    messages: list[ChatMessage],
+    advisor_guidance: str,
+) -> list[ChatMessage]:
+    guidance_block = _build_advisor_guidance_block(advisor_guidance)
+    updated_messages = [message.model_copy(deep=True) for message in messages]
+
+    for index in range(len(updated_messages) - 1, -1, -1):
+        message = updated_messages[index]
+        if message.role != "user":
+            continue
+
+        current_content = message.content or ""
+        next_content = guidance_block if current_content == "" else f"{current_content}\n\n{guidance_block}"
+        updated_messages[index] = message.model_copy(update={"content": next_content})
+        return updated_messages
+
+    updated_messages.append(ChatMessage(role="user", content=guidance_block))
+    return updated_messages

@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Mode = Literal["direct", "adapter", "critic"]
+Mode = Literal["direct", "adapter", "critic", "advisor"]
 
 
 class ChatMessage(BaseModel):
@@ -24,6 +24,8 @@ class AdapterCriticOverrides(BaseModel):
     adapter_base_url: str | None = None
     critic_model: str | None = None
     critic_base_url: str | None = None
+    advisor_model: str | None = None
+    advisor_base_url: str | None = None
     max_adapter_retries: int | None = Field(default=None, ge=0)
 
 

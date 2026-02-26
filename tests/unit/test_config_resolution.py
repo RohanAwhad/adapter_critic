@@ -17,6 +17,11 @@ def _config() -> AppConfig:
                     "mode": "direct",
                     "api": {"model": "api-direct", "base_url": "https://api.example"},
                 },
+                "served-advisor": {
+                    "mode": "advisor",
+                    "api": {"model": "api-default", "base_url": "https://api.example"},
+                    "advisor": {"model": "advisor-default", "base_url": "https://advisor.example"},
+                },
             }
         }
     )
@@ -64,6 +69,15 @@ def test_served_model_max_adapter_retries_is_resolved() -> None:
     assert runtime.max_adapter_retries == 2
 
 
+def test_served_model_advisor_resolves_defaults() -> None:
+    runtime = resolve_runtime_config(_config(), "served-advisor", AdapterCriticOverrides())
+    assert runtime is not None
+    assert runtime.mode == "advisor"
+    assert runtime.api.model == "api-default"
+    assert runtime.advisor is not None
+    assert runtime.advisor.model == "advisor-default"
+
+
 def test_mode_override_without_secondary_target_falls_back_to_api_target() -> None:
     overrides = AdapterCriticOverrides(mode="adapter")
     runtime = resolve_runtime_config(_config(), "served-direct", overrides)
@@ -84,8 +98,24 @@ def test_critic_mode_override_without_secondary_target_falls_back_to_api_target(
     assert runtime.critic.base_url == "https://api.example"
 
 
+def test_advisor_mode_override_without_secondary_target_falls_back_to_api_target() -> None:
+    overrides = AdapterCriticOverrides(mode="advisor")
+    runtime = resolve_runtime_config(_config(), "served-direct", overrides)
+    assert runtime is not None
+    assert runtime.mode == "advisor"
+    assert runtime.advisor is not None
+    assert runtime.advisor.model == "api-direct"
+    assert runtime.advisor.base_url == "https://api.example"
+
+
 def test_partial_secondary_override_is_rejected() -> None:
     overrides = AdapterCriticOverrides(mode="adapter", adapter_model="adapter-only")
+    runtime = resolve_runtime_config(_config(), "served-direct", overrides)
+    assert runtime is None
+
+
+def test_partial_advisor_override_is_rejected() -> None:
+    overrides = AdapterCriticOverrides(mode="advisor", advisor_model="advisor-only")
     runtime = resolve_runtime_config(_config(), "served-direct", overrides)
     assert runtime is None
 

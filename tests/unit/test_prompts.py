@@ -4,7 +4,9 @@ from adapter_critic.contracts import ChatMessage
 from adapter_critic.prompts import (
     ADAPTER_RESPONSE_FORMAT,
     ADAPTER_SYSTEM_PROMPT,
+    append_advisor_guidance_to_last_user_message,
     build_adapter_messages,
+    build_advisor_messages,
     build_critic_messages,
 )
 
@@ -103,3 +105,70 @@ def test_critic_prompt_no_tool_contract_without_tools() -> None:
     system_content = prompt_messages[0].content
     assert system_content is not None
     assert "Authoritative tool contract" not in system_content
+
+
+def test_advisor_messages_include_original_message_sequence() -> None:
+    messages = [
+        ChatMessage(role="system", content="system rule"),
+        ChatMessage(role="user", content="please help"),
+    ]
+    prompt_messages = build_advisor_messages(messages=messages)
+
+    assert prompt_messages[1:] == messages
+
+
+def test_advisor_prompt_includes_tool_contract_when_tools_are_provided() -> None:
+    messages = [ChatMessage(role="user", content="cancel reservation EHGLP3")]
+    prompt_messages = build_advisor_messages(
+        messages=messages,
+        request_options={
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "cancel_reservation",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"reservation_id": {"type": "string"}},
+                        },
+                    },
+                }
+            ],
+            "tool_choice": "auto",
+        },
+    )
+
+    system_content = prompt_messages[0].content
+    assert system_content is not None
+    assert "Authoritative tool contract for this request" in system_content
+    assert '"name": "cancel_reservation"' in system_content
+    assert '"tool_choice": "auto"' in system_content
+
+
+def test_append_advisor_guidance_to_last_user_message() -> None:
+    messages = [
+        ChatMessage(role="user", content="first question"),
+        ChatMessage(role="assistant", content="first answer"),
+        ChatMessage(role="user", content="second question"),
+    ]
+
+    updated = append_advisor_guidance_to_last_user_message(messages, "check policy section")
+
+    assert updated[0].content == "first question"
+    assert updated[1].content == "first answer"
+    assert updated[2].content is not None
+    assert updated[2].content.startswith("second question")
+    assert "[ADVISOR_GUIDANCE]" in updated[2].content
+    assert "check policy section" in updated[2].content
+
+
+def test_append_advisor_guidance_adds_user_message_when_missing() -> None:
+    messages = [ChatMessage(role="assistant", content="draft")]
+
+    updated = append_advisor_guidance_to_last_user_message(messages, "verify required fields")
+
+    assert len(updated) == 2
+    assert updated[-1].role == "user"
+    assert updated[-1].content is not None
+    assert "[ADVISOR_GUIDANCE]" in updated[-1].content
+    assert "verify required fields" in updated[-1].content

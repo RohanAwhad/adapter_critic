@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from .contracts import AdapterCriticOverrides, Mode
-from .prompts import ADAPTER_SYSTEM_PROMPT, CRITIC_SYSTEM_PROMPT
+from .prompts import ADAPTER_SYSTEM_PROMPT, ADVISOR_SYSTEM_PROMPT, CRITIC_SYSTEM_PROMPT
 
 
 class StageTarget(BaseModel):
@@ -21,9 +21,11 @@ class ServedModelConfig(BaseModel):
     api: StageTarget
     adapter: StageTarget | None = None
     critic: StageTarget | None = None
+    advisor: StageTarget | None = None
     max_adapter_retries: int = Field(default=0, ge=0)
     adapter_system_prompt: str | None = None
     critic_system_prompt: str | None = None
+    advisor_system_prompt: str | None = None
 
 
 class AppConfig(BaseModel):
@@ -38,9 +40,11 @@ class RuntimeConfig(BaseModel):
     api: StageTarget
     adapter: StageTarget | None = None
     critic: StageTarget | None = None
+    advisor: StageTarget | None = None
     max_adapter_retries: int = 0
     adapter_system_prompt: str
     critic_system_prompt: str
+    advisor_system_prompt: str
 
 
 def _resolve_stage(base: StageTarget | None, model: str | None, base_url: str | None) -> StageTarget | None:
@@ -68,9 +72,11 @@ def resolve_runtime_config(
 
     adapter_override_provided = overrides.adapter_model is not None or overrides.adapter_base_url is not None
     critic_override_provided = overrides.critic_model is not None or overrides.critic_base_url is not None
+    advisor_override_provided = overrides.advisor_model is not None or overrides.advisor_base_url is not None
 
     adapter_target = _resolve_stage(served.adapter, overrides.adapter_model, overrides.adapter_base_url)
     critic_target = _resolve_stage(served.critic, overrides.critic_model, overrides.critic_base_url)
+    advisor_target = _resolve_stage(served.advisor, overrides.advisor_model, overrides.advisor_base_url)
 
     if mode == "adapter" and adapter_target is None:
         if adapter_override_provided:
@@ -82,12 +88,18 @@ def resolve_runtime_config(
             return None
         critic_target = api_target
 
+    if mode == "advisor" and advisor_target is None:
+        if advisor_override_provided:
+            return None
+        advisor_target = api_target
+
     return RuntimeConfig(
         served_model=served_model,
         mode=mode,
         api=api_target,
         adapter=adapter_target,
         critic=critic_target,
+        advisor=advisor_target,
         max_adapter_retries=(
             overrides.max_adapter_retries if overrides.max_adapter_retries is not None else served.max_adapter_retries
         ),
@@ -96,5 +108,8 @@ def resolve_runtime_config(
         ),
         critic_system_prompt=(
             served.critic_system_prompt if served.critic_system_prompt is not None else CRITIC_SYSTEM_PROMPT
+        ),
+        advisor_system_prompt=(
+            served.advisor_system_prompt if served.advisor_system_prompt is not None else ADVISOR_SYSTEM_PROMPT
         ),
     )

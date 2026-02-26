@@ -5,7 +5,7 @@ from typing import Any
 from .config import RuntimeConfig
 from .contracts import ChatMessage
 from .upstream import UpstreamGateway
-from .workflows import run_adapter, run_critic, run_direct
+from .workflows import run_adapter, run_advisor, run_critic, run_direct
 from .workflows.direct import WorkflowOutput
 
 
@@ -24,6 +24,13 @@ async def dispatch(
         )
     if runtime.mode == "adapter":
         return await run_adapter(
+            runtime=runtime,
+            messages=messages,
+            gateway=gateway,
+            request_options=request_options,
+        )
+    if runtime.mode == "advisor":
+        return await run_advisor(
             runtime=runtime,
             messages=messages,
             gateway=gateway,

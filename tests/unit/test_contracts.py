@@ -35,6 +35,19 @@ def test_parse_override_from_top_level() -> None:
     assert parsed.overrides.max_adapter_retries == 1
 
 
+def test_parse_advisor_override_from_top_level() -> None:
+    payload = _base_payload()
+    payload["x_adapter_critic"] = {
+        "mode": "advisor",
+        "advisor_model": "advisor-v1",
+        "advisor_base_url": "https://advisor.example",
+    }
+    parsed = parse_request_payload(payload)
+    assert parsed.overrides.mode == "advisor"
+    assert parsed.overrides.advisor_model == "advisor-v1"
+    assert parsed.overrides.advisor_base_url == "https://advisor.example"
+
+
 def test_top_level_override_has_precedence_over_extra_body() -> None:
     payload = _base_payload()
     payload["x_adapter_critic"] = {"mode": "critic", "critic_model": "critic-top"}

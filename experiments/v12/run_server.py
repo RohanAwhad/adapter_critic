@@ -13,23 +13,32 @@ from adapter_critic.routing_gateway import RoutingGateway
 from adapter_critic.runtime import build_runtime_state
 from adapter_critic.vertex_gateway import VertexAICompatibleHttpGateway
 from experiments.v12.upstream_resolution import (
+    build_openai_base_url,
     build_vertex_base_url,
     resolve_model_name,
     resolve_project_id,
     resolve_region,
+    resolve_upstream_host,
 )
 
 os.environ.setdefault("LOGGING_LEVEL", "DEBUG")
 configure_logging()
 
 
-def build_experiment_config(*, project_id: str, region: str, model_name: str) -> AppConfig:
+INTERVENTIONIST_MODEL = "gpt-oss-120b"
+INTERVENTIONIST_PORT = 8101
+
+
+def build_experiment_config(*, project_id: str, region: str, model_name: str, upstream_host: str) -> AppConfig:
     api_base_url = build_vertex_base_url(project_id=project_id, region=region)
+    adapter_base_url = build_openai_base_url(host=upstream_host, port=INTERVENTIONIST_PORT)
 
     logger.info("selected project_id={}", project_id)
     logger.info("selected region={}", region)
     logger.info("selected model_name={}", model_name)
+    logger.info("selected upstream_host={}", upstream_host)
     logger.info("resolved upstream URL for API model={}", api_base_url)
+    logger.info("resolved upstream URL for interventionist model={}", adapter_base_url)
 
     return AppConfig.model_validate(
         {
@@ -37,7 +46,12 @@ def build_experiment_config(*, project_id: str, region: str, model_name: str) ->
                 "served-direct": {
                     "mode": "direct",
                     "api": {"model": model_name, "base_url": api_base_url},
-                }
+                },
+                "served-adapter": {
+                    "mode": "adapter",
+                    "api": {"model": model_name, "base_url": api_base_url},
+                    "adapter": {"model": INTERVENTIONIST_MODEL, "base_url": adapter_base_url},
+                },
             }
         }
     )
@@ -47,8 +61,14 @@ def main() -> None:
     project_id = resolve_project_id()
     region = resolve_region()
     model_name = resolve_model_name()
+    upstream_host = resolve_upstream_host()
 
-    config = build_experiment_config(project_id=project_id, region=region, model_name=model_name)
+    config = build_experiment_config(
+        project_id=project_id,
+        region=region,
+        model_name=model_name,
+        upstream_host=upstream_host,
+    )
     openai_gateway = OpenAICompatibleHttpGateway(api_key="dummy")
     vertex_gateway = VertexAICompatibleHttpGateway()
     gateway = RoutingGateway(openai_gateway=openai_gateway, vertex_gateway=vertex_gateway)

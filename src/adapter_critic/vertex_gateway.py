@@ -292,6 +292,10 @@ def _map_usage(usage: Any) -> TokenUsage:
     )
 
 
+def _is_vertex_empty_assistant_edge_case(*, content: str, tool_calls: list[dict[str, Any]], stop_reason: Any) -> bool:
+    return content == "" and len(tool_calls) == 0 and stop_reason == "end_turn"
+
+
 class VertexAICompatibleHttpGateway:
     def __init__(
         self,
@@ -358,108 +362,134 @@ class VertexAICompatibleHttpGateway:
             async with AsyncAnthropicVertex(**kwargs) as client:
                 return await client.messages.create(**create_kwargs)
 
-        response = await _run_request(client_kwargs)
+        max_empty_assistant_attempts = 2
+        for attempt in range(1, max_empty_assistant_attempts + 1):
+            response = await _run_request(client_kwargs)
 
-        logger.debug(
-            "vertex anthropic raw response model={} client_base_url={} payload={}",
-            normalized_model,
-            client_base_url,
-            _payload_preview(_as_log_payload(response), max_chars=2000),
-        )
-
-        content_value = _value_get(response, "content")
-        if not isinstance(content_value, list):
-            raise UpstreamResponseFormatError(
-                reason="vertex anthropic content is not a list",
-                model=normalized_model,
-                base_url=base_url,
-                message_count=len(messages),
-                status_code=200,
-                response_body=_as_log_payload(response),
+            logger.debug(
+                "vertex anthropic raw response model={} client_base_url={} attempt={}/{} payload={}",
+                normalized_model,
+                client_base_url,
+                attempt,
+                max_empty_assistant_attempts,
+                _payload_preview(_as_log_payload(response), max_chars=2000),
             )
 
-        content_parts: list[str] = []
-        tool_calls: list[dict[str, Any]] = []
-        for block in content_value:
-            block_type = _value_get(block, "type")
-            if block_type == "text":
-                text_value = _value_get(block, "text")
-                if isinstance(text_value, str):
-                    content_parts.append(text_value)
-            elif block_type == "tool_use":
-                tool_call_id = _value_get(block, "id")
-                tool_name = _value_get(block, "name")
-                tool_input = _value_get(block, "input")
-                if not isinstance(tool_call_id, str):
-                    raise UpstreamResponseFormatError(
-                        reason="vertex anthropic tool_use block id is not a string",
-                        model=normalized_model,
-                        base_url=base_url,
-                        message_count=len(messages),
-                        status_code=200,
-                        response_body=_as_log_payload(response),
-                    )
-                if not isinstance(tool_name, str):
-                    raise UpstreamResponseFormatError(
-                        reason="vertex anthropic tool_use block name is not a string",
-                        model=normalized_model,
-                        base_url=base_url,
-                        message_count=len(messages),
-                        status_code=200,
-                        response_body=_as_log_payload(response),
-                    )
-                if not isinstance(tool_input, dict):
-                    raise UpstreamResponseFormatError(
-                        reason="vertex anthropic tool_use block input is not an object",
-                        model=normalized_model,
-                        base_url=base_url,
-                        message_count=len(messages),
-                        status_code=200,
-                        response_body=_as_log_payload(response),
-                    )
-
-                tool_calls.append(
-                    {
-                        "id": tool_call_id,
-                        "type": "function",
-                        "function": {
-                            "name": tool_name,
-                            "arguments": json.dumps(tool_input, separators=(",", ":"), sort_keys=True),
-                        },
-                    }
+            content_value = _value_get(response, "content")
+            if not isinstance(content_value, list):
+                raise UpstreamResponseFormatError(
+                    reason="vertex anthropic content is not a list",
+                    model=normalized_model,
+                    base_url=base_url,
+                    message_count=len(messages),
+                    status_code=200,
+                    response_body=_as_log_payload(response),
                 )
 
-        content = "".join(content_parts)
-        normalized_tool_calls = tool_calls if len(tool_calls) > 0 else None
+            content_parts: list[str] = []
+            tool_calls: list[dict[str, Any]] = []
+            for block in content_value:
+                block_type = _value_get(block, "type")
+                if block_type == "text":
+                    text_value = _value_get(block, "text")
+                    if isinstance(text_value, str):
+                        content_parts.append(text_value)
+                elif block_type == "tool_use":
+                    tool_call_id = _value_get(block, "id")
+                    tool_name = _value_get(block, "name")
+                    tool_input = _value_get(block, "input")
+                    if not isinstance(tool_call_id, str):
+                        raise UpstreamResponseFormatError(
+                            reason="vertex anthropic tool_use block id is not a string",
+                            model=normalized_model,
+                            base_url=base_url,
+                            message_count=len(messages),
+                            status_code=200,
+                            response_body=_as_log_payload(response),
+                        )
+                    if not isinstance(tool_name, str):
+                        raise UpstreamResponseFormatError(
+                            reason="vertex anthropic tool_use block name is not a string",
+                            model=normalized_model,
+                            base_url=base_url,
+                            message_count=len(messages),
+                            status_code=200,
+                            response_body=_as_log_payload(response),
+                        )
+                    if not isinstance(tool_input, dict):
+                        raise UpstreamResponseFormatError(
+                            reason="vertex anthropic tool_use block input is not an object",
+                            model=normalized_model,
+                            base_url=base_url,
+                            message_count=len(messages),
+                            status_code=200,
+                            response_body=_as_log_payload(response),
+                        )
 
-        if content == "" and normalized_tool_calls is None:
-            raise UpstreamResponseFormatError(
-                reason="assistant message has empty content and no tool calls",
-                model=normalized_model,
-                base_url=base_url,
-                message_count=len(messages),
-                status_code=200,
-                response_body=_as_log_payload(response),
+                    tool_calls.append(
+                        {
+                            "id": tool_call_id,
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "arguments": json.dumps(tool_input, separators=(",", ":"), sort_keys=True),
+                            },
+                        }
+                    )
+
+            content = "".join(content_parts)
+            stop_reason = _value_get(response, "stop_reason")
+            if _is_vertex_empty_assistant_edge_case(content=content, tool_calls=tool_calls, stop_reason=stop_reason):
+                if attempt < max_empty_assistant_attempts:
+                    logger.warning(
+                        "vertex returned empty assistant content without tool calls; retrying "
+                        "model={} client_base_url={} attempt={}/{} stop_reason={}",
+                        normalized_model,
+                        client_base_url,
+                        attempt,
+                        max_empty_assistant_attempts,
+                        stop_reason,
+                    )
+                    continue
+                logger.warning(
+                    "vertex empty assistant content persisted after retry; accepting empty content "
+                    "model={} client_base_url={} attempts={} stop_reason={}",
+                    normalized_model,
+                    client_base_url,
+                    max_empty_assistant_attempts,
+                    stop_reason,
+                )
+            elif content == "" and len(tool_calls) == 0:
+                raise UpstreamResponseFormatError(
+                    reason="assistant message has empty content and no tool calls",
+                    model=normalized_model,
+                    base_url=base_url,
+                    message_count=len(messages),
+                    status_code=200,
+                    response_body=_as_log_payload(response),
+                )
+
+            normalized_tool_calls = tool_calls if len(tool_calls) > 0 else None
+            finish_reason = _map_finish_reason(stop_reason)
+            usage = _map_usage(_value_get(response, "usage"))
+
+            logger.debug(
+                "vertex anthropic parsed model={} content_len={} tool_calls_count={} finish_reason={} "
+                "prompt_tokens={} completion_tokens={} total_tokens={}",
+                normalized_model,
+                len(content),
+                len(tool_calls),
+                finish_reason,
+                usage.prompt_tokens,
+                usage.completion_tokens,
+                usage.total_tokens,
             )
 
-        finish_reason = _map_finish_reason(_value_get(response, "stop_reason"))
-        usage = _map_usage(_value_get(response, "usage"))
+            return UpstreamResult(
+                content=content,
+                usage=usage,
+                tool_calls=normalized_tool_calls,
+                finish_reason=finish_reason,
+            )
 
-        logger.debug(
-            "vertex anthropic parsed model={} content_len={} tool_calls_count={} finish_reason={} "
-            "prompt_tokens={} completion_tokens={} total_tokens={}",
-            normalized_model,
-            len(content),
-            len(tool_calls),
-            finish_reason,
-            usage.prompt_tokens,
-            usage.completion_tokens,
-            usage.total_tokens,
-        )
-
-        return UpstreamResult(
-            content=content,
-            usage=usage,
-            tool_calls=normalized_tool_calls,
-            finish_reason=finish_reason,
-        )
+        raise RuntimeError("unreachable: max_empty_assistant_attempts exhausted")

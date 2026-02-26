@@ -171,3 +171,39 @@ async def test_vertex_gateway_local_tool_use_mapping(
     assert result.tool_calls is not None
     assert result.tool_calls[0]["function"]["name"] == "cancel_reservation"
     assert result.tool_calls[0]["function"]["arguments"] == '{"reservation_id":"EHGLP3"}'
+
+
+@pytest.mark.anyio
+async def test_vertex_gateway_accepts_empty_content_list_end_turn(
+    fake_vertex_auth_token: None,
+    upstream_server_factory: Callable[[dict[str, Any], dict[str, Any]], str],
+) -> None:
+    del fake_vertex_auth_token
+    capture: dict[str, Any] = {}
+    base_url = upstream_server_factory(
+        {
+            "id": "msg_789",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-5@20250929",
+            "content": [],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 18, "output_tokens": 2},
+        },
+        capture,
+    )
+
+    gateway = VertexAICompatibleHttpGateway(timeout_seconds=5.0)
+    result = await gateway.complete(
+        model="claude-sonnet-4-5@20250929",
+        base_url=f"{base_url}/v1/projects/test-project/locations/us-east5",
+        messages=[ChatMessage(role="user", content="hello")],
+        request_options={"max_tokens": 32},
+    )
+
+    assert capture["path"] == (
+        "v1/projects/test-project/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-5@20250929:rawPredict"
+    )
+    assert result.content == ""
+    assert result.finish_reason == "stop"
+    assert result.tool_calls is None

@@ -91,6 +91,14 @@ def _malformed_tool_call_issues(messages: list[dict[str, Any]]) -> list[dict[str
     return issues
 
 
+def _is_empty_assistant_edge_case(*, content_value: Any, tool_calls_value: Any) -> bool:
+    content_is_empty_shape = content_value is None or (isinstance(content_value, list) and len(content_value) == 0)
+    tool_calls_is_empty_shape = tool_calls_value is None or (
+        isinstance(tool_calls_value, list) and len(tool_calls_value) == 0
+    )
+    return content_is_empty_shape and tool_calls_is_empty_shape
+
+
 class UpstreamResponseFormatError(RuntimeError):
     def __init__(
         self,
@@ -188,174 +196,206 @@ class OpenAICompatibleHttpGateway:
             approx_prompt_tokens,
         )
 
-        async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
-            response = await client.post(
-                f"{base_url.rstrip('/')}/chat/completions",
-                headers=headers,
-                json=payload,
+        max_empty_assistant_attempts = 2
+        for attempt in range(1, max_empty_assistant_attempts + 1):
+            async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
+                response = await client.post(
+                    f"{base_url.rstrip('/')}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                try:
+                    data = response.json()
+                except ValueError as exc:
+                    raise UpstreamResponseFormatError(
+                        reason="response body is not valid JSON",
+                        model=model,
+                        base_url=base_url,
+                        message_count=len(messages),
+                        status_code=response.status_code,
+                        response_body=response.text,
+                    ) from exc
+
+            logger.debug(
+                "upstream raw response model={} base_url={} status={} attempt={}/{} message={}",
+                model,
+                base_url,
+                response.status_code,
+                attempt,
+                max_empty_assistant_attempts,
+                _payload_preview(data, max_chars=2000),
             )
-            response.raise_for_status()
-            try:
-                data = response.json()
-            except ValueError as exc:
+
+            if not isinstance(data, dict):
                 raise UpstreamResponseFormatError(
-                    reason="response body is not valid JSON",
+                    reason="response body is not a JSON object",
                     model=model,
                     base_url=base_url,
                     message_count=len(messages),
                     status_code=response.status_code,
-                    response_body=response.text,
-                ) from exc
+                    response_body=data,
+                )
 
-        logger.debug(
-            "upstream raw response model={} base_url={} status={} message={}",
-            model,
-            base_url,
-            response.status_code,
-            _payload_preview(data, max_chars=2000),
-        )
+            choices = data.get("choices")
+            if not isinstance(choices, list) or len(choices) == 0:
+                raise UpstreamResponseFormatError(
+                    reason="response missing non-empty choices",
+                    model=model,
+                    base_url=base_url,
+                    message_count=len(messages),
+                    status_code=response.status_code,
+                    response_body=data,
+                )
 
-        if not isinstance(data, dict):
-            raise UpstreamResponseFormatError(
-                reason="response body is not a JSON object",
-                model=model,
-                base_url=base_url,
-                message_count=len(messages),
-                status_code=response.status_code,
-                response_body=data,
-            )
+            first_choice = choices[0]
+            if not isinstance(first_choice, dict):
+                raise UpstreamResponseFormatError(
+                    reason="choices[0] is not an object",
+                    model=model,
+                    base_url=base_url,
+                    message_count=len(messages),
+                    status_code=response.status_code,
+                    response_body=data,
+                )
 
-        choices = data.get("choices")
-        if not isinstance(choices, list) or len(choices) == 0:
-            raise UpstreamResponseFormatError(
-                reason="response missing non-empty choices",
-                model=model,
-                base_url=base_url,
-                message_count=len(messages),
-                status_code=response.status_code,
-                response_body=data,
-            )
+            message = first_choice.get("message")
+            if not isinstance(message, dict):
+                raise UpstreamResponseFormatError(
+                    reason="choices[0].message is not an object",
+                    model=model,
+                    base_url=base_url,
+                    message_count=len(messages),
+                    status_code=response.status_code,
+                    response_body=data,
+                )
 
-        first_choice = choices[0]
-        if not isinstance(first_choice, dict):
-            raise UpstreamResponseFormatError(
-                reason="choices[0] is not an object",
-                model=model,
-                base_url=base_url,
-                message_count=len(messages),
-                status_code=response.status_code,
-                response_body=data,
-            )
+            tool_calls_value = message.get("tool_calls")
+            if tool_calls_value is None:
+                tool_calls: list[dict[str, Any]] | None = None
+            elif isinstance(tool_calls_value, list) and all(isinstance(item, dict) for item in tool_calls_value):
+                tool_calls = tool_calls_value if len(tool_calls_value) > 0 else None
+            else:
+                raise UpstreamResponseFormatError(
+                    reason="choices[0].message.tool_calls is not a list of objects",
+                    model=model,
+                    base_url=base_url,
+                    message_count=len(messages),
+                    status_code=response.status_code,
+                    response_body=data,
+                )
 
-        message = first_choice.get("message")
-        if not isinstance(message, dict):
-            raise UpstreamResponseFormatError(
-                reason="choices[0].message is not an object",
-                model=model,
-                base_url=base_url,
-                message_count=len(messages),
-                status_code=response.status_code,
-                response_body=data,
-            )
+            if tool_calls is not None:
+                for index, tool_call in enumerate(tool_calls):
+                    function = tool_call.get("function")
+                    if not isinstance(function, dict):
+                        raise UpstreamResponseFormatError(
+                            reason="choices[0].message.tool_calls[*].function is not an object",
+                            model=model,
+                            base_url=base_url,
+                            message_count=len(messages),
+                            status_code=response.status_code,
+                            response_body=data,
+                        )
+                    arguments = function.get("arguments")
+                    if not isinstance(arguments, str):
+                        raise UpstreamResponseFormatError(
+                            reason="choices[0].message.tool_calls[*].function.arguments is not a string",
+                            model=model,
+                            base_url=base_url,
+                            message_count=len(messages),
+                            status_code=response.status_code,
+                            response_body=data,
+                        )
+                    try:
+                        json.loads(arguments)
+                    except ValueError as exc:
+                        raise UpstreamResponseFormatError(
+                            reason=(
+                                "choices[0].message.tool_calls[*].function.arguments is not valid JSON "
+                                f"at index {index}"
+                            ),
+                            model=model,
+                            base_url=base_url,
+                            message_count=len(messages),
+                            status_code=response.status_code,
+                            response_body=data,
+                        ) from exc
 
-        tool_calls_value = message.get("tool_calls")
-        if tool_calls_value is None:
-            tool_calls: list[dict[str, Any]] | None = None
-        elif isinstance(tool_calls_value, list) and all(isinstance(item, dict) for item in tool_calls_value):
-            tool_calls = tool_calls_value if len(tool_calls_value) > 0 else None
-        else:
-            raise UpstreamResponseFormatError(
-                reason="choices[0].message.tool_calls is not a list of objects",
-                model=model,
-                base_url=base_url,
-                message_count=len(messages),
-                status_code=response.status_code,
-                response_body=data,
-            )
+            raw_usage = data.get("usage", {})
+            usage = raw_usage if isinstance(raw_usage, dict) else {}
+            content_value = message.get("content")
+            if isinstance(content_value, str):
+                content = content_value
+            elif isinstance(content_value, list):
+                content = "".join(
+                    part["text"]
+                    for part in content_value
+                    if isinstance(part, dict) and isinstance(part.get("text"), str)
+                )
+            else:
+                content = ""
 
-        if tool_calls is not None:
-            for index, tool_call in enumerate(tool_calls):
-                function = tool_call.get("function")
-                if not isinstance(function, dict):
+            if content == "" and tool_calls is None:
+                if _is_empty_assistant_edge_case(content_value=content_value, tool_calls_value=tool_calls_value):
+                    if attempt < max_empty_assistant_attempts:
+                        logger.warning(
+                            "empty assistant payload without tool calls; retrying upstream request "
+                            "model={} base_url={} attempt={}/{} content_type={} tool_calls_type={}",
+                            model,
+                            base_url,
+                            attempt,
+                            max_empty_assistant_attempts,
+                            type(content_value).__name__,
+                            type(tool_calls_value).__name__,
+                        )
+                        continue
+                    logger.warning(
+                        "empty assistant payload without tool calls persisted after retry; accepting empty content "
+                        "model={} base_url={} attempts={} content_type={} tool_calls_type={}",
+                        model,
+                        base_url,
+                        max_empty_assistant_attempts,
+                        type(content_value).__name__,
+                        type(tool_calls_value).__name__,
+                    )
+                else:
                     raise UpstreamResponseFormatError(
-                        reason="choices[0].message.tool_calls[*].function is not an object",
+                        reason="assistant message has empty content and no tool calls",
                         model=model,
                         base_url=base_url,
                         message_count=len(messages),
                         status_code=response.status_code,
                         response_body=data,
                     )
-                arguments = function.get("arguments")
-                if not isinstance(arguments, str):
-                    raise UpstreamResponseFormatError(
-                        reason="choices[0].message.tool_calls[*].function.arguments is not a string",
-                        model=model,
-                        base_url=base_url,
-                        message_count=len(messages),
-                        status_code=response.status_code,
-                        response_body=data,
-                    )
-                try:
-                    json.loads(arguments)
-                except ValueError as exc:
-                    raise UpstreamResponseFormatError(
-                        reason=(
-                            f"choices[0].message.tool_calls[*].function.arguments is not valid JSON at index {index}"
-                        ),
-                        model=model,
-                        base_url=base_url,
-                        message_count=len(messages),
-                        status_code=response.status_code,
-                        response_body=data,
-                    ) from exc
 
-        raw_usage = data.get("usage", {})
-        usage = raw_usage if isinstance(raw_usage, dict) else {}
-        content_value = message.get("content")
-        if isinstance(content_value, str):
-            content = content_value
-        elif isinstance(content_value, list):
-            content = "".join(
-                part["text"] for part in content_value if isinstance(part, dict) and isinstance(part.get("text"), str)
-            )
-        else:
-            content = ""
-
-        if content == "" and tool_calls is None:
-            raise UpstreamResponseFormatError(
-                reason="assistant message has empty content and no tool calls",
-                model=model,
-                base_url=base_url,
-                message_count=len(messages),
-                status_code=response.status_code,
-                response_body=data,
+            logger.debug(
+                "upstream parsed model={} content_len={} content_type={} "
+                "tool_calls_count={} tool_calls_raw_type={} finish_reason={} "
+                "prompt_tokens={} completion_tokens={} total_tokens={}",
+                model,
+                len(content),
+                type(content_value).__name__,
+                len(tool_calls) if tool_calls is not None else "None",
+                type(tool_calls_value).__name__,
+                first_choice.get("finish_reason"),
+                int(usage.get("prompt_tokens", 0)),
+                int(usage.get("completion_tokens", 0)),
+                int(usage.get("total_tokens", 0)),
             )
 
-        logger.debug(
-            "upstream parsed model={} content_len={} content_type={} "
-            "tool_calls_count={} tool_calls_raw_type={} finish_reason={} "
-            "prompt_tokens={} completion_tokens={} total_tokens={}",
-            model,
-            len(content),
-            type(content_value).__name__,
-            len(tool_calls) if tool_calls is not None else "None",
-            type(tool_calls_value).__name__,
-            first_choice.get("finish_reason"),
-            int(usage.get("prompt_tokens", 0)),
-            int(usage.get("completion_tokens", 0)),
-            int(usage.get("total_tokens", 0)),
-        )
+            finish_reason_value = first_choice.get("finish_reason")
+            finish_reason = finish_reason_value if isinstance(finish_reason_value, str) else "stop"
 
-        finish_reason_value = first_choice.get("finish_reason")
-        finish_reason = finish_reason_value if isinstance(finish_reason_value, str) else "stop"
+            return UpstreamResult(
+                content=content,
+                usage=TokenUsage(
+                    prompt_tokens=int(usage.get("prompt_tokens", 0)),
+                    completion_tokens=int(usage.get("completion_tokens", 0)),
+                    total_tokens=int(usage.get("total_tokens", 0)),
+                ),
+                tool_calls=tool_calls,
+                finish_reason=finish_reason,
+            )
 
-        return UpstreamResult(
-            content=content,
-            usage=TokenUsage(
-                prompt_tokens=int(usage.get("prompt_tokens", 0)),
-                completion_tokens=int(usage.get("completion_tokens", 0)),
-                total_tokens=int(usage.get("total_tokens", 0)),
-            ),
-            tool_calls=tool_calls,
-            finish_reason=finish_reason,
-        )
+        raise RuntimeError("unreachable: max_empty_assistant_attempts exhausted")

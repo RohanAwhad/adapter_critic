@@ -296,7 +296,7 @@ async def test_openai_compatible_http_gateway_rejects_empty_content_without_tool
 
 
 @pytest.mark.anyio
-async def test_openai_compatible_http_gateway_rejects_empty_content_with_empty_tool_calls(
+async def test_openai_compatible_http_gateway_accepts_empty_content_with_empty_tool_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     upstream = FastAPI()
@@ -328,14 +328,15 @@ async def test_openai_compatible_http_gateway_rejects_empty_content_with_empty_t
     monkeypatch.setattr(httpx, "AsyncClient", patched_async_client)
 
     gateway = OpenAICompatibleHttpGateway(api_key="dummy", timeout_seconds=5.0)
-    with pytest.raises(UpstreamResponseFormatError) as exc_info:
-        await gateway.complete(
-            model="api-model",
-            base_url="http://testserver/v1",
-            messages=[ChatMessage(role="user", content="hello")],
-        )
+    result = await gateway.complete(
+        model="api-model",
+        base_url="http://testserver/v1",
+        messages=[ChatMessage(role="user", content="hello")],
+    )
 
-    assert exc_info.value.reason == "assistant message has empty content and no tool calls"
+    assert result.content == ""
+    assert result.finish_reason == "stop"
+    assert result.tool_calls is None
 
 
 @pytest.mark.anyio
